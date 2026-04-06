@@ -60,33 +60,33 @@
 ## 프로젝트 구조
 
 pet_walking_project/
-├── frontend/                  # Flutter 앱
+├── frontend/                   # Flutter 앱
 │   └── lib/
-│       ├── main.dart          # 앱 진입점, 네이버 지도 SDK 초기화
+│       ├── main.dart           # 앱 진입점, 네이버 지도 SDK 초기화
 │       ├── screens/
-│       │   └── map_screen.dart  # 지도 화면, 타일 오버레이, Marking 버튼
+│       │   └── map_screen.dart # 지도 화면, 타일 오버레이, Marking 버튼
 │       └── services/
 │           └── api_service.dart # 백엔드 API 통신
 │
-├── backend/                   # Node.js 서버
+├── backend/                    # Node.js 서버
 │   └── src/
-│       ├── index.ts           # 서버 진입점
-│       ├── types/             # 공유 타입 정의
+│       ├── index.ts            # 서버 진입점
+│       ├── types/              # 공유 타입 정의
 │       ├── db/
-│       │   ├── pool.ts        # DB 커넥션 풀
-│       │   └── schema.sql     # 테이블 정의
-│       ├── routes/            # API 라우터
-│       ├── controllers/       # 요청/응답 처리
-│       ├── services/          # 비즈니스 로직
+│       │   ├── pool.ts         # DB 커넥션 풀
+│       │   └── schema.sql      # 테이블 정의
+│       ├── routes/             # API 라우터
+│       ├── controllers/        # 요청/응답 처리
+│       ├── services/           # 비즈니스 로직
 │       │   ├── markingService.ts  # 마킹 처리, PostGIS 타일 계산
 │       │   ├── tileService.ts     # 타일 조회
 │       │   └── userService.ts     # 유저 관리
 │       ├── jobs/
-│       │   └── decayJob.ts    # 점수 감쇄 배치 (매일 00:00)
-│       └── middlewares/       # 인증, 에러 핸들링
+│       │   └── decayJob.ts     # 점수 감쇄 배치 (매일 00:00)
+│       └── middlewares/        # 인증, 에러 핸들링
 │
-├── docs/                      # PRD, API 명세
-└── docker-compose.yml         # PostgreSQL + PostGIS 컨테이너
+├── docs/                       # PRD, API 명세
+└── docker-compose.yml          # PostgreSQL + PostGIS 컨테이너
 
 ## 핵심 게임 로직
 
