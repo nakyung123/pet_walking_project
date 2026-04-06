@@ -59,7 +59,7 @@
 
 ## 프로젝트 구조
 
-```text
+```
 pet_walking_project/
 ├── frontend/                   # Flutter 앱
 │   └── lib/
@@ -88,7 +88,7 @@ pet_walking_project/
 │
 ├── docs/                       # PRD, API 명세
 └── docker-compose.yml          # PostgreSQL + PostGIS 컨테이너
-
+```
 ## 핵심 게임 로직
 
 - 타일: 지도를 10m × 10m 격자로 분할 (PostGIS Web Mercator 기반)
