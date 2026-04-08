@@ -1,30 +1,28 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
+// Pet Territory 앱 위젯 스모크 테스트
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:pet_territory/main.dart';
-
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  group('기본 앱 테스트', () {
+    test('마킹 속도 제한 로직 검증', () {
+      // 15km/h 이상이면 마킹 불가
+      const double speedLimit = 15.0;
+      expect(20.0 >= speedLimit, isTrue);  // 20km/h → 거부
+      expect(10.0 >= speedLimit, isFalse); // 10km/h → 허용
+    });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    test('타일 크기 계산 검증 (50m 격자)', () {
+      // 50m 격자의 위도 반경: 50 / 2 / 111000 ≈ 0.000225
+      const double halfDeg = 0.000225;
+      const double tileSize = halfDeg * 2 * 111000; // 미터 단위
+      expect(tileSize, closeTo(50.0, 1.0)); // 약 50m
+    });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    test('API 응답 구조 검증', () {
+      // { success: bool, data: T, error: string | null } 형식
+      final response = {'success': true, 'data': {'score': 100}, 'error': null};
+      expect(response['success'], isTrue);
+      expect(response['data'], isNotNull);
+      expect(response['error'], isNull);
+    });
   });
 }

@@ -31,18 +31,18 @@ export const markingService = async (req: MarkingRequestV2): Promise<MarkingResu
       ),
       grid AS (
         SELECT
-          floor(ST_X(pt) / 10) AS gx,
-          floor(ST_Y(pt) / 10) AS gy
+          floor(ST_X(pt) / 50) AS gx,
+          floor(ST_Y(pt) / 50) AS gy
         FROM mercator
       )
       SELECT
         gx::text || '_' || gy::text AS tile_id,
         ST_Y(ST_Transform(
-          ST_SetSRID(ST_MakePoint((gx + 0.5) * 10, (gy + 0.5) * 10), 3857),
+          ST_SetSRID(ST_MakePoint((gx + 0.5) * 50, (gy + 0.5) * 50), 3857),
           4326
         )) AS center_lat,
         ST_X(ST_Transform(
-          ST_SetSRID(ST_MakePoint((gx + 0.5) * 10, (gy + 0.5) * 10), 3857),
+          ST_SetSRID(ST_MakePoint((gx + 0.5) * 50, (gy + 0.5) * 50), 3857),
           4326
         )) AS center_lng
       FROM grid`,

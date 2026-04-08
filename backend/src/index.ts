@@ -8,7 +8,6 @@ import { startDecayJob } from './jobs/decayJob';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
@@ -24,10 +23,13 @@ app.use('/api', router);
 // 글로벌 에러 핸들러
 app.use(errorHandler);
 
-app.listen(PORT, () => {
-  console.log(`[Server] Pet Territory 서버 실행 중: http://localhost:${PORT}`);
-  // 감쇄 배치 잡 시작
-  startDecayJob();
-});
+// 테스트 환경에서는 listen하지 않음
+if (process.env.NODE_ENV !== 'test') {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`[Server] Pet Territory 서버 실행 중: http://localhost:${PORT}`);
+    startDecayJob();
+  });
+}
 
 export default app;

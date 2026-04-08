@@ -1,15 +1,14 @@
 import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_naver_map/flutter_naver_map.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 
 // 내 영역: 파란색, 경쟁자 영역: 빨간색
-const _myColor = Color(0x882196F3);
-const _rivalColor = Color(0x88F44336);
-
-// 개발 모드 고정 userId (Firebase 연동 전)
-const _devUserId = 'dev-user-001';
+const _myColor = Color(0xAA2196F3);
+const _rivalColor = Color(0xAAF44336);
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -20,23 +19,59 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> {
   NaverMapController? _mapController;
+  NLocationOverlay? _locationOverlay;
   final ApiService _api = ApiService();
+
+  // 현재 로그인된 유저 UID (Firebase)
+  String get _userId => FirebaseAuth.instance.currentUser!.uid;
 
   Position? _currentPosition;
   bool _isMarking = false;
 
   // 현재 타일 진입 시각 (체류시간 계산용)
   DateTime _tileEnteredAt = DateTime.now();
-  // 임시 세션 ID (DB walking_sessions에 등록된 UUID와 일치해야 함)
-  final String _sessionId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  // 세션 ID — initState에서 백엔드로부터 발급
+  String? _sessionId;
 
   // 타일 오버레이 목록 (tileId → overlay)
   final Map<String, NPolygonOverlay> _tileOverlays = {};
 
+  // 내 총 점수
+  int _totalScore = 0;
+
   @override
   void initState() {
     super.initState();
+    _startSession();
     _initLocation();
+    _refreshScore();
+  }
+
+  Future<void> _refreshScore() async {
+    try {
+      final data = await _api.getMyScore();
+      setState(() => _totalScore = data['totalScore'] as int);
+    } catch (e) {
+      debugPrint('[Score] 점수 조회 실패: $e');
+    }
+  }
+
+  // 산책 세션 시작 — 유저 upsert 후 session_id 발급
+  Future<void> _startSession() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser!;
+      // 앱 실행마다 유저 정보 upsert (재로그인 시에도 DB에 존재 보장)
+      await _api.registerUser(
+        userId: user.uid,
+        displayName: user.displayName ?? '유저',
+        dogName: '강아지',
+      );
+      final sessionId = await _api.createSession(_userId);
+      setState(() => _sessionId = sessionId);
+      debugPrint('[Session] 세션 시작: $sessionId');
+    } catch (e) {
+      debugPrint('[Session] 세션 생성 실패: $e');
+    }
   }
 
   // GPS 권한 확인 및 위치 스트림 시작
@@ -58,6 +93,8 @@ class _MapScreenState extends State<MapScreen> {
       ),
     ).listen((position) {
       setState(() => _currentPosition = position);
+      _locationOverlay?.setPosition(NLatLng(position.latitude, position.longitude));
+      _locationOverlay?.setBearing(position.heading);
       _loadTilesInView();
       debugPrint('[GPS] 위치 갱신: ${position.latitude}, ${position.longitude} | 속도: ${position.speed}m/s');
     });
@@ -90,28 +127,35 @@ class _MapScreenState extends State<MapScreen> {
     final controller = _mapController;
     if (controller == null) return;
 
+    // 기존 오버레이 전체 제거
+    for (final tileId in _tileOverlays.keys.toList()) {
+      await controller.deleteOverlay(NOverlayInfo(type: NOverlayType.polygonOverlay, id: tileId));
+    }
+    _tileOverlays.clear();
+
     for (final tile in tiles) {
       final tileId = tile['tileId'] as String;
       final lat = (tile['lat'] as num).toDouble();
       final lng = (tile['lng'] as num).toDouble();
       final occupantId = tile['occupantUserId'] as String?;
 
-      // 10m × 10m 격자 꼭짓점 계산 (위도 1도 ≈ 111,000m)
-      const halfDeg = 0.000045; // 약 5m
+      // 50m × 50m 격자 꼭짓점 계산 (위도 1도 ≈ 111,000m)
+      const halfDeg = 0.000225; // 약 25m
       final coords = [
         NLatLng(lat - halfDeg, lng - halfDeg),
         NLatLng(lat + halfDeg, lng - halfDeg),
         NLatLng(lat + halfDeg, lng + halfDeg),
         NLatLng(lat - halfDeg, lng + halfDeg),
+        NLatLng(lat - halfDeg, lng - halfDeg), // 닫힌 폴리곤: 첫 점 반복
       ];
 
-      final color = occupantId == _devUserId ? _myColor : _rivalColor;
+      final color = occupantId == _userId ? _myColor : _rivalColor;
       final overlay = NPolygonOverlay(
         id: tileId,
         coords: coords,
         color: color,
-        outlineColor: color.withAlpha(200),
-        outlineWidth: 1,
+        outlineColor: color.withAlpha(255),
+        outlineWidth: 2,
       );
 
       // 기존 오버레이 제거 후 새로 추가
@@ -135,14 +179,20 @@ class _MapScreenState extends State<MapScreen> {
     // 속도 km/h 변환 (position.speed는 m/s)
     final speedKmh = position.speed * 3.6;
 
+    final sessionId = _sessionId;
+    if (sessionId == null) {
+      _showSnackBar('세션 준비 중입니다. 잠시 후 다시 시도해주세요.');
+      return;
+    }
+
     setState(() => _isMarking = true);
     try {
       final result = await _api.postMarking(
-        userId: _devUserId,
+        userId: _userId,
         lat: position.latitude,
         lng: position.longitude,
         speed: speedKmh,
-        sessionId: _sessionId,
+        sessionId: sessionId,
         enteredAt: _tileEnteredAt.toIso8601String(),
       );
 
@@ -155,6 +205,7 @@ class _MapScreenState extends State<MapScreen> {
         _showSnackBar(isOccupied ? '마킹 성공! 점수: $score' : '마킹! 점수: $score (점유 도전 중)');
         _tileEnteredAt = DateTime.now(); // 체류시간 리셋
         _loadTilesInView();
+        _refreshScore();
       } else {
         _showSnackBar(result['error'] ?? '마킹 실패');
       }
@@ -170,6 +221,23 @@ class _MapScreenState extends State<MapScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
     );
+  }
+
+  Future<void> _onSignOut() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('로그아웃'),
+        content: const Text('로그아웃 하시겠습니까?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('로그아웃')),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await AuthService().signOut();
+    }
   }
 
   @override
@@ -188,12 +256,60 @@ class _MapScreenState extends State<MapScreen> {
               maxZoom: 20,
               locationButtonEnable: true,
             ),
-            onMapReady: (controller) {
+            onMapReady: (controller) async {
               _mapController = controller;
               debugPrint('[NaverMap] 지도 준비 완료');
+
+              // 현재 위치 오버레이 활성화
+              _locationOverlay = controller.getLocationOverlay();
+              _locationOverlay!.setIsVisible(true);
+
+              // 현재 위치가 이미 있으면 즉시 표시
+              if (_currentPosition != null) {
+                _locationOverlay!.setPosition(
+                  NLatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+                );
+              }
+
               _loadTilesInView();
             },
             onCameraIdle: () => _loadTilesInView(),
+          ),
+
+          // 우상단 버튼들
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            right: 12,
+            child: SafeArea(
+              child: Column(
+                children: [
+                  // 내 위치로 이동 버튼
+                  FloatingActionButton.small(
+                    heroTag: 'myLocation',
+                    backgroundColor: Colors.white,
+                    onPressed: () {
+                      final pos = _currentPosition;
+                      if (pos == null) return;
+                      _mapController?.updateCamera(
+                        NCameraUpdate.scrollAndZoomTo(
+                          target: NLatLng(pos.latitude, pos.longitude),
+                          zoom: 17,
+                        ),
+                      );
+                    },
+                    child: const Icon(Icons.gps_fixed, color: Color(0xFF2196F3)),
+                  ),
+                  const SizedBox(height: 8),
+                  // 로그아웃 버튼
+                  FloatingActionButton.small(
+                    heroTag: 'logout',
+                    backgroundColor: Colors.white,
+                    onPressed: _onSignOut,
+                    child: const Icon(Icons.logout, color: Colors.black54),
+                  ),
+                ],
+              ),
+            ),
           ),
 
           // 하단 UI 패널 (화면 20%)
@@ -256,9 +372,9 @@ class _MapScreenState extends State<MapScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         mainAxisSize: MainAxisSize.min,
-                        children: const [
-                          Text('포인트', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                          Text('0', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                        children: [
+                          const Text('포인트', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                          Text('$_totalScore', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                         ],
                       ),
                     ),
