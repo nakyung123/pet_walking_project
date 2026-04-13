@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_naver_map/flutter_naver_map.dart';
@@ -6,9 +7,12 @@ import 'package:geolocator/geolocator.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 
-// 내 영역: 파란색, 경쟁자 영역: 빨간색
-const _myColor = Color(0xAA2196F3);
-const _rivalColor = Color(0xAAF44336);
+// Fill: 불투명도 40%
+const _myFillColor      = Color(0x662196F3);
+const _rivalFillColor   = Color(0x66F44336);
+// Stroke: 100% 불투명, 진한 색
+const _myStrokeColor    = Color(0xFF1565C0);
+const _rivalStrokeColor = Color(0xFFB71C1C);
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -34,7 +38,15 @@ class _MapScreenState extends State<MapScreen> {
   String? _sessionId;
 
   // 타일 오버레이 목록 (tileId → overlay)
-  final Map<String, NPolygonOverlay> _tileOverlays = {};
+  final Map<String, NGroundOverlay> _tileOverlays = {};
+  NMarker? _youLabelMarker;
+  int _myTileCount = 0;
+
+  // 마킹 버튼 애니메이션 (눌릴 때 축소)
+  bool _markingButtonPressed = false;
+  // 점수 팝업 (+N 텍스트) — key는 팝업 고유 ID
+  final Map<int, int> _scorePopups = {}; // id → score
+  int _popupIdCounter = 0;
 
   // 내 총 점수
   int _totalScore = 0;
@@ -122,50 +134,138 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  // 타일 목록을 지도 위에 폴리곤 오버레이로 렌더링
+  /// PictureRecorder로 둥근 모서리 타일 이미지를 생성합니다.
+  Future<NOverlayImage> _generateTileImage(
+    Color fillColor,
+    Color strokeColor, {
+    bool glow = false,
+    String? cacheKey,
+  }) async {
+    const double size   = 256.0;
+    const double inset  = 8.0;
+    const double radius = 12.0;
+    const double stroke = 2.0;
+
+    final recorder = ui.PictureRecorder();
+    final canvas   = Canvas(recorder, Rect.fromLTWH(0, 0, size, size));
+    final rrect    = RRect.fromRectAndRadius(
+      Rect.fromLTWH(inset, inset, size - inset * 2, size - inset * 2),
+      const Radius.circular(radius),
+    );
+
+    if (glow) {
+      canvas.drawRRect(rrect, Paint()
+        ..color      = fillColor.withAlpha(180)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.outer, 10.0));
+    }
+    canvas.drawRRect(rrect, Paint()..color = fillColor);
+    canvas.drawRRect(rrect, Paint()
+      ..color       = strokeColor
+      ..style       = PaintingStyle.stroke
+      ..strokeWidth = stroke);
+
+    final picture  = recorder.endRecording();
+    final img      = await picture.toImage(size.toInt(), size.toInt());
+    final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
+    return NOverlayImage.fromByteArray(
+      byteData!.buffer.asUint8List(),
+      cacheKey: cacheKey,
+    );
+  }
+
+  /// 현재 위치가 타일 범위 안에 있는지 확인합니다.
+  bool _isPositionInTile(double pLat, double pLng, double tLat, double tLng) {
+    const halfLng = 0.000225;
+    const halfLat = 0.000225 * 0.7986;
+    return (pLat - tLat).abs() <= halfLat && (pLng - tLng).abs() <= halfLng;
+  }
+
+  /// 현재 위치 타일 위에 "You" 라벨 마커를 추가합니다.
+  Future<void> _addYouLabel(NaverMapController c, NLatLng pos) async {
+    final rec = ui.PictureRecorder();
+    Canvas(rec, const Rect.fromLTWH(0, 0, 1, 1));
+    final bd = await (await rec.endRecording().toImage(1, 1))
+        .toByteData(format: ui.ImageByteFormat.png);
+    final icon = await NOverlayImage.fromByteArray(
+      bd!.buffer.asUint8List(), cacheKey: 'transparent_1x1');
+
+    final marker = NMarker(
+      id: 'you_label', position: pos, icon: icon,
+      anchor: const NPoint(0.5, 0.5),
+      caption: const NOverlayCaption(
+        text: 'You', textSize: 13,
+        color: Colors.white, haloColor: Colors.black87,
+      ),
+      captionAligns: const [NAlign.top],
+      captionOffset: 4,
+    );
+    marker.setGlobalZIndex(300000);
+    _youLabelMarker = marker;
+    await c.addOverlay(marker);
+  }
+
+  // 타일 목록을 지도 위에 NGroundOverlay로 렌더링 (둥근 모서리 + Glow 지원)
   Future<void> _renderTiles(List<dynamic> tiles) async {
     final controller = _mapController;
     if (controller == null) return;
 
     // 기존 오버레이 전체 제거
-    for (final tileId in _tileOverlays.keys.toList()) {
-      await controller.deleteOverlay(NOverlayInfo(type: NOverlayType.polygonOverlay, id: tileId));
+    for (final id in _tileOverlays.keys.toList()) {
+      await controller.deleteOverlay(
+        NOverlayInfo(type: NOverlayType.groundOverlay, id: id));
     }
     _tileOverlays.clear();
 
+    if (_youLabelMarker != null) {
+      await controller.deleteOverlay(
+        NOverlayInfo(type: NOverlayType.marker, id: 'you_label'));
+      _youLabelMarker = null;
+    }
+
+    int myCount = 0;
+    NLatLng? glowCenter;
+    // EPSG:3857 50m 격자 → 위경도 변환 (3% 축소로 타일 간 간격 확보)
+    const halfLng = 0.000225 * 0.97;           // 경도 방향
+    const halfLat = 0.000225 * 0.7986 * 0.97; // 위도 방향 (cos(37°) 보정)
+    final pos = _currentPosition;
+
     for (final tile in tiles) {
-      final tileId = tile['tileId'] as String;
-      final lat = (tile['lat'] as num).toDouble();
-      final lng = (tile['lng'] as num).toDouble();
+      final tileId     = tile['tileId'] as String;
+      final lat        = (tile['lat'] as num).toDouble();
+      final lng        = (tile['lng'] as num).toDouble();
       final occupantId = tile['occupantUserId'] as String?;
+      final isMyTile   = occupantId == _userId;
+      final isGlowing  = pos != null &&
+          _isPositionInTile(pos.latitude, pos.longitude, lat, lng);
 
-      // 50m × 50m 격자 꼭짓점 계산 (위도 1도 ≈ 111,000m)
-      const halfDeg = 0.000225; // 약 25m
-      final coords = [
-        NLatLng(lat - halfDeg, lng - halfDeg),
-        NLatLng(lat + halfDeg, lng - halfDeg),
-        NLatLng(lat + halfDeg, lng + halfDeg),
-        NLatLng(lat - halfDeg, lng + halfDeg),
-        NLatLng(lat - halfDeg, lng - halfDeg), // 닫힌 폴리곤: 첫 점 반복
-      ];
+      if (isMyTile) myCount++;
+      if (isGlowing) glowCenter = NLatLng(lat, lng);
 
-      final color = occupantId == _userId ? _myColor : _rivalColor;
-      final overlay = NPolygonOverlay(
+      final fillColor   = isMyTile ? _myFillColor   : _rivalFillColor;
+      final strokeColor = isMyTile ? _myStrokeColor : _rivalStrokeColor;
+      final cacheKey    = '${isMyTile ? "my" : "rival"}_${isGlowing ? "glow" : "normal"}';
+
+      final image = await _generateTileImage(fillColor, strokeColor,
+          glow: isGlowing, cacheKey: cacheKey);
+
+      final overlay = NGroundOverlay(
         id: tileId,
-        coords: coords,
-        color: color,
-        outlineColor: color.withAlpha(255),
-        outlineWidth: 2,
+        bounds: NLatLngBounds(
+          southWest: NLatLng(lat - halfLat, lng - halfLng),
+          northEast: NLatLng(lat + halfLat, lng + halfLng),
+        ),
+        image: image,
       );
+      overlay.setGlobalZIndex(100);
 
-      // 기존 오버레이 제거 후 새로 추가
-      if (_tileOverlays.containsKey(tileId)) {
-        await controller.deleteOverlay(NOverlayInfo(type: NOverlayType.polygonOverlay, id: tileId));
-      }
       _tileOverlays[tileId] = overlay;
       await controller.addOverlay(overlay);
-      debugPrint('[Tile] 오버레이 추가: $tileId');
+      debugPrint('[Tile] GroundOverlay 추가: $tileId (glow: $isGlowing)');
     }
+
+    setState(() => _myTileCount = myCount);
+
+    if (glowCenter != null) await _addYouLabel(controller, glowCenter);
   }
 
   // 마킹 버튼 처리
@@ -177,7 +277,9 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     // 속도 km/h 변환 (position.speed는 m/s)
-    final speedKmh = position.speed * 3.6;
+    // 에뮬레이터 GPS 노이즈 방지: 4.2 m/s(15km/h) 초과 시 0으로 처리
+    final rawSpeed = position.speed;
+    final speedKmh = (rawSpeed <= 0 || rawSpeed > 4.2) ? 0.0 : rawSpeed * 3.6;
 
     final sessionId = _sessionId;
     if (sessionId == null) {
@@ -185,7 +287,15 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
 
-    setState(() => _isMarking = true);
+    setState(() {
+      _isMarking = true;
+      _markingButtonPressed = true;
+    });
+    // 버튼 눌림 효과: 150ms 후 원래 크기로 복귀
+    Future.delayed(const Duration(milliseconds: 150), () {
+      if (mounted) setState(() => _markingButtonPressed = false);
+    });
+
     try {
       final result = await _api.postMarking(
         userId: _userId,
@@ -200,9 +310,17 @@ class _MapScreenState extends State<MapScreen> {
 
       if (result['success'] == true) {
         final data = result['data'] as Map<String, dynamic>;
-        final score = data['newScore'];
+        final score = data['newScore'] as int;
         final isOccupied = data['isOccupied'] as bool;
         _showSnackBar(isOccupied ? '마킹 성공! 점수: $score' : '마킹! 점수: $score (점유 도전 중)');
+
+        // 점수 팝업 추가
+        final popupId = _popupIdCounter++;
+        setState(() => _scorePopups[popupId] = score);
+        Future.delayed(const Duration(milliseconds: 1200), () {
+          if (mounted) setState(() => _scorePopups.remove(popupId));
+        });
+
         _tileEnteredAt = DateTime.now(); // 체류시간 리셋
         _loadTilesInView();
         _refreshScore();
@@ -251,6 +369,7 @@ class _MapScreenState extends State<MapScreen> {
               initialCameraPosition: NCameraPosition(
                 target: NLatLng(37.5665, 126.9780), // 서울 기본값
                 zoom: 17,
+                tilt: 30,
               ),
               minZoom: 14,
               maxZoom: 20,
@@ -336,35 +455,55 @@ class _MapScreenState extends State<MapScreen> {
                         children: [
                           const Text('내 영역', style: TextStyle(fontSize: 12, color: Colors.grey)),
                           Text(
-                            '${_tileOverlays.values.length} 타일',
+                            '$_myTileCount 타일',
                             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                           ),
                         ],
                       ),
                     ),
 
-                    // Marking 버튼
-                    GestureDetector(
-                      onTap: _isMarking ? null : _onMarkingPressed,
-                      child: Container(
-                        width: 100,
-                        height: 100,
-                        decoration: BoxDecoration(
-                          color: _isMarking ? Colors.grey : const Color(0xFFFFD600),
-                          shape: BoxShape.circle,
-                          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 4))],
-                        ),
-                        child: _isMarking
-                            ? const Center(child: CircularProgressIndicator(color: Colors.white))
-                            : const Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.pets, size: 32, color: Colors.white),
-                                  SizedBox(height: 4),
-                                  Text('Marking', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                ],
+                    // 점수 팝업 + 마킹 버튼
+                    Stack(
+                      alignment: Alignment.topCenter,
+                      clipBehavior: Clip.none,
+                      children: [
+                        // +N 팝업들
+                        ..._scorePopups.entries.map((e) => Positioned(
+                          top: -60,
+                          child: _ScorePopupWidget(score: e.value),
+                        )),
+                        // 마킹 버튼
+                        GestureDetector(
+                          onTap: _isMarking ? null : _onMarkingPressed,
+                          child: AnimatedScale(
+                            scale: _markingButtonPressed ? 0.88 : 1.0,
+                            duration: const Duration(milliseconds: 120),
+                            child: Container(
+                              width: 100,
+                              height: 100,
+                              decoration: BoxDecoration(
+                                color: _isMarking ? Colors.grey : const Color(0xFFFFD600),
+                                shape: BoxShape.circle,
+                                boxShadow: [BoxShadow(
+                                  color: _markingButtonPressed ? Colors.black38 : Colors.black26,
+                                  blurRadius: _markingButtonPressed ? 4 : 8,
+                                  offset: Offset(0, _markingButtonPressed ? 2 : 4),
+                                )],
                               ),
-                      ),
+                              child: _isMarking
+                                  ? const Center(child: CircularProgressIndicator(color: Colors.white))
+                                  : const Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(Icons.pets, size: 32, color: Colors.white),
+                                        SizedBox(height: 4),
+                                        Text('Marking', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                      ],
+                                    ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
 
                     // 점수 표시
@@ -384,6 +523,66 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 마킹 성공 시 "+N" 텍스트가 위로 올라가며 사라지는 팝업 위젯
+class _ScorePopupWidget extends StatefulWidget {
+  final int score;
+  const _ScorePopupWidget({required this.score});
+
+  @override
+  State<_ScorePopupWidget> createState() => _ScorePopupWidgetState();
+}
+
+class _ScorePopupWidgetState extends State<_ScorePopupWidget>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _opacity;
+  late Animation<double> _offset;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 1200),
+      vsync: this,
+    )..forward();
+
+    _opacity = Tween<double>(begin: 1.0, end: 0.0).animate(
+      CurvedAnimation(parent: _controller, curve: const Interval(0.5, 1.0)),
+    );
+    _offset = Tween<double>(begin: 0.0, end: -40.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (_, __) => Transform.translate(
+        offset: Offset(0, _offset.value),
+        child: Opacity(
+          opacity: _opacity.value,
+          child: Text(
+            '+${widget.score}',
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFFFFD600),
+              shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
+            ),
+          ),
+        ),
       ),
     );
   }
