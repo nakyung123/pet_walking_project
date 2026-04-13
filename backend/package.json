@@ -13,12 +13,21 @@
   "jest": {
     "preset": "ts-jest",
     "testEnvironment": "node",
-    "testMatch": ["**/__tests__/**/*.test.ts"],
-    "moduleFileExtensions": ["ts", "js"],
+    "testMatch": [
+      "**/__tests__/**/*.test.ts"
+    ],
+    "moduleFileExtensions": [
+      "ts",
+      "js"
+    ],
     "testEnvironmentOptions": {
-      "env": { "NODE_ENV": "test" }
+      "env": {
+        "NODE_ENV": "test"
+      }
     },
-    "setupFiles": ["<rootDir>/src/__tests__/setup.ts"]
+    "setupFiles": [
+      "<rootDir>/src/__tests__/setup.ts"
+    ]
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -26,7 +35,8 @@
     "express": "^4.19.2",
     "firebase-admin": "^12.1.0",
     "node-cron": "^3.0.3",
-    "pg": "^8.11.5"
+    "pg": "^8.11.5",
+    "socket.io": "^4.8.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

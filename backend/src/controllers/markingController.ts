@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { markingService } from '../services/markingService';
 import { MarkingRequestV2, ApiResponse, MarkingResult } from '../types';
+import { toAreaKey } from '../utils/areaKey';
+import { emitTileUpdated } from '../socket';
 
 const MAX_SPEED_KMH = 15;
 
@@ -26,6 +28,13 @@ export const postMarking = async (
 
     const result = await markingService(body);
     console.log('[Marking] 결과:', result);
+
+    // 마킹 성공 → 같은 구역 클라이언트에게 실시간 타일 변경 알림
+    const areaKey = toAreaKey(body.lat, body.lng);
+    emitTileUpdated(areaKey, {
+      tileId: result.tileId,
+      occupantUserId: result.isOccupied ? body.userId : null,
+    });
 
     const response: ApiResponse<MarkingResult> = {
       success: true,
