@@ -5,7 +5,6 @@ import { MarkingRequestV2, MarkingResult } from '../types';
 const STAY_WEIGHT = 1 / 30;
 /** 마킹 버튼 보너스 */
 const MARKING_BONUS = 10;
-
 /**
  * 마킹 처리 서비스
  *
@@ -16,6 +15,7 @@ const MARKING_BONUS = 10;
  * 4. 점수 경쟁 방식으로 점유자 결정
  */
 export const markingService = async (req: MarkingRequestV2): Promise<MarkingResult> => {
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -59,7 +59,7 @@ export const markingService = async (req: MarkingRequestV2): Promise<MarkingResu
       [tileId, centerLat, centerLng]
     );
 
-    // 3. tile_visits에 방문 기록 저장 (진입~마킹 시점까지의 체류시간)
+    // 3. tile_visits에 방문 기록 저장
     const visitRes = await client.query<{ stay_seconds: number }>(
       `INSERT INTO tile_visits (session_id, user_id, tile_id, entered_at, exited_at)
        VALUES ($1, $2, $3, $4, $5)
@@ -73,7 +73,7 @@ export const markingService = async (req: MarkingRequestV2): Promise<MarkingResu
     const addScore = Math.floor(staySeconds * STAY_WEIGHT) + MARKING_BONUS;
     console.log('[markingService] 추가 점수:', addScore);
 
-    // 5. 타일 점수 업데이트 + 점유자 결정 (점수 경쟁 방식)
+    // 5. 타일 점수 업데이트 + 점유자 결정
     const updateRes = await client.query<{
       occupancy_score: number;
       occupant_user_id: string | null;
@@ -82,13 +82,13 @@ export const markingService = async (req: MarkingRequestV2): Promise<MarkingResu
        SET
          occupancy_score = occupancy_score + $1,
          occupant_user_id = CASE
-           WHEN occupant_user_id IS NULL THEN $2          -- 최초 점유
-           WHEN occupant_user_id = $2 THEN $2             -- 기존 점유자 유지
-           WHEN (occupancy_score + $1) >                  -- 역전 시 점유자 교체
+           WHEN occupant_user_id IS NULL THEN $2
+           WHEN occupant_user_id = $2    THEN $2
+           WHEN (occupancy_score + $1) >
                 (SELECT MAX(v.occupancy_score)
                  FROM tiles v WHERE v.tile_id = $3)
                 THEN $2
-           ELSE occupant_user_id                          -- 아직 역전 못함
+           ELSE occupant_user_id
          END,
          last_marked_at = NOW(),
          updated_at = NOW()

@@ -1,0 +1,24 @@
+{
+  "name": "Pet Territory",
+  "short_name": "Pet Territory",
+  "description": "반려견과 함께 동네를 점령하세요",
+  "start_url": "/map",
+  "display": "standalone",
+  "background_color": "#111827",
+  "theme_color": "#111827",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

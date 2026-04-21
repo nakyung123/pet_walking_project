@@ -47,7 +47,7 @@ export async function postMarking(
   },
   idToken: string,
 ) {
-  return request<{ newScore: number; isOccupied: boolean }>(
+  return request<{ newScore: number; isOccupied: boolean; rejectedReason?: string }>(
     '/api/marking',
     { method: 'POST', body: JSON.stringify(payload) },
     idToken,
@@ -66,4 +66,36 @@ export async function startSession(userId: string, idToken: string) {
 // 내 점수 조회
 export async function getScore(_userId: string, idToken: string) {
   return request<{ totalScore: number }>(`/api/users/me/score`, undefined, idToken);
+}
+
+// 점령 타일 전체 조회 (초기 로드용)
+export async function getOccupiedTiles(idToken: string) {
+  return request<unknown[]>('/api/tiles/occupied', undefined, idToken);
+}
+
+// 현재 위치 타일 삭제
+export async function deleteTile(lat: number, lng: number, idToken: string) {
+  return request<{ tileId: string | null }>(
+    '/api/tiles',
+    { method: 'DELETE', body: JSON.stringify({ lat, lng }) },
+    idToken,
+  );
+}
+
+// 리더보드 조회
+export async function getLeaderboard(idToken: string) {
+  return request<LeaderboardData>('/api/leaderboard', undefined, idToken);
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  userId: string;
+  displayName: string;
+  tileCount: number;
+  totalScore: number;
+}
+
+export interface LeaderboardData {
+  byTile: LeaderboardEntry[];
+  byScore: LeaderboardEntry[];
 }

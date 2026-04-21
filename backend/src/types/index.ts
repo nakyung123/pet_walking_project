@@ -11,7 +11,7 @@ export interface ApiResponse<T> {
 // 도메인 타입 정의
 // ========================
 
-/** 지도 위의 10m x 10m 격자 단위 */
+/** 지도 위의 50m x 50m 격자 단위 */
 export interface Tile {
   tileId: string;
   lat: number;
@@ -70,4 +70,19 @@ export interface MarkingRequestV2 extends MarkingRequest {
   sessionId: string;
   /** 현재 타일에 진입한 시각 (ISO 8601) */
   enteredAt: string;
+}
+
+/** 리더보드 항목 */
+export interface LeaderboardEntry {
+  rank: number;
+  userId: string;
+  displayName: string;
+  tileCount: number;
+  totalScore: number;
+}
+
+/** 리더보드 응답 (타일 수 / 점수 각각 분리) */
+export interface LeaderboardData {
+  byTile: LeaderboardEntry[];
+  byScore: LeaderboardEntry[];
 }

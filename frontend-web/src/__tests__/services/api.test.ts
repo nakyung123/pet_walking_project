@@ -56,7 +56,8 @@ describe('getTiles', () => {
 describe('postMarking', () => {
   it('POST 메서드로 마킹 페이로드를 전송한다', async () => {
     mockFetch({ newScore: 100, isOccupied: true });
-    const payload = { userId: 'u1', sessionId: 's1', lat: 37.56, lng: 126.97, speedKmh: 5 };
+    const now = new Date().toISOString();
+    const payload = { userId: 'u1', sessionId: 's1', lat: 37.56, lng: 126.97, speed: 5, timestamp: now, enteredAt: now };
     await postMarking(payload, MOCK_TOKEN);
 
     const [url, options] = (global.fetch as jest.Mock).mock.calls[0];
