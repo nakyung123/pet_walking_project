@@ -88,10 +88,10 @@ export default function Leaderboard({ idToken, currentUserId }: LeaderboardProps
 
   return (
     <>
-      {/* 우측 고정 패널 */}
-      <div className="absolute bottom-8 right-3 z-20 w-80 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl overflow-hidden">
+      {/* 패널 (위치·높이는 부모 컨테이너가 담당) */}
+      <div className="w-full h-full bg-white/95 backdrop-blur-md rounded-2xl shadow-xl flex flex-col overflow-hidden">
         {/* 헤더 */}
-        <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+        <div className="px-4 pt-4 pb-2 flex items-center justify-between shrink-0">
           <span className="text-base font-bold text-gray-900">랭킹</span>
           <button
             onClick={() => setOpen(true)}
@@ -102,7 +102,7 @@ export default function Leaderboard({ idToken, currentUserId }: LeaderboardProps
         </div>
 
         {/* 탭 */}
-        <div className="flex gap-1.5 px-4 pb-3">
+        <div className="flex gap-1.5 px-4 pb-3 shrink-0">
           {(['score', 'tile'] as Tab[]).map((t) => (
             <button
               key={t}
@@ -118,8 +118,8 @@ export default function Leaderboard({ idToken, currentUserId }: LeaderboardProps
           ))}
         </div>
 
-        {/* 목록 */}
-        <ul className="px-4 pb-4 space-y-1">
+        {/* 목록 (남은 공간을 채우고 스크롤) */}
+        <ul className="flex-1 min-h-0 overflow-y-auto scrollbar-hide px-4 pb-4 space-y-1">
           {loading ? (
             <li className="flex justify-center py-5">
               <div className="w-5 h-5 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
@@ -136,7 +136,7 @@ export default function Leaderboard({ idToken, currentUserId }: LeaderboardProps
 
       {/* 전체 보기 모달 */}
       {open && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center px-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
           <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl flex flex-col max-h-[75vh]">
             <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">

@@ -31,7 +31,7 @@ export default function LoginPage() {
   return (
     <div className="flex h-screen flex-col items-center justify-center bg-gray-900 gap-8">
       <div className="text-center">
-        <h1 className="text-4xl font-bold text-yellow-400">🐾 Pet Territory</h1>
+        <h1 className="text-4xl font-bold text-yellow-400">🐾 펫국지</h1>
         <p className="mt-2 text-gray-400">반려견과 함께 동네를 점령하세요</p>
       </div>
 

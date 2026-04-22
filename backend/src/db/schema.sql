@@ -72,3 +72,11 @@ CREATE INDEX IF NOT EXISTS idx_visits_tile
 
 CREATE INDEX IF NOT EXISTS idx_visits_session
   ON tile_visits (session_id);
+
+-- ============================================================
+-- 5. 반려견 프로필 컬럼 추가 (기존 users 테이블 확장)
+-- ============================================================
+ALTER TABLE users ADD COLUMN IF NOT EXISTS dog_breed      TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS dog_age        TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS dog_personality TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_url      TEXT;

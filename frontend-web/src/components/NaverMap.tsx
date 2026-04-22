@@ -15,13 +15,15 @@ interface NaverMapProps {
   tiles: Tile[];
   myPosition: { lat: number; lng: number } | null;
   initialPosition?: { lat: number; lng: number };
-  pathCoords: { lat: number; lng: number }[];
   tileOwners?: Record<string, string>;
+  previewPosition?: { lat: number; lng: number } | null;
   onBoundsChange: (bounds: {
     minLat: number; maxLat: number; minLng: number; maxLng: number;
   }) => void;
   onCenterChange: (lat: number, lng: number) => void;
   onPositionOverride?: (lat: number, lng: number) => void;
+  onUserClick?: (userId: string) => void;
+  flyTo?: { lat: number; lng: number; zoom: number } | null;
 }
 
 declare global {
@@ -32,6 +34,27 @@ const MY_FILL   = 'rgba(249, 115, 74, 0.62)';
 const MY_STROKE = '#C2440A';
 const HALF_LNG  = 0.000225 * 0.97;
 const HALF_LAT  = 0.000225 * 0.7986 * 0.97;
+
+// Web Mercator (EPSG:3857) 변환 — 백엔드의 타일 grid 계산과 동일
+const R = 6378137;
+const TILE_M = 50;
+const lngToX = (lng: number) => (lng * Math.PI / 180) * R;
+const latToY = (lat: number) => Math.log(Math.tan((90 + lat) * Math.PI / 360)) * R;
+const xToLng = (x: number) => (x / R) * 180 / Math.PI;
+const yToLat = (y: number) => (Math.atan(Math.exp(y / R)) * 360 / Math.PI) - 90;
+
+function calcPreviewCorners(lat: number, lng: number): [number, number][] {
+  const mx = lngToX(lng);
+  const my = latToY(lat);
+  const gx = Math.floor(mx / TILE_M);
+  const gy = Math.floor(my / TILE_M);
+  return [
+    [xToLng(gx * TILE_M),        yToLat(gy * TILE_M)],
+    [xToLng((gx + 1) * TILE_M),  yToLat(gy * TILE_M)],
+    [xToLng((gx + 1) * TILE_M),  yToLat((gy + 1) * TILE_M)],
+    [xToLng(gx * TILE_M),        yToLat((gy + 1) * TILE_M)],
+  ];
+}
 
 // 상대 유저 색상 팔레트 [fill, stroke]
 const RIVAL_COLORS: [string, string][] = [
@@ -139,23 +162,62 @@ function buildBoundaryPolygons(tiles: Tile[]): [number, number][][] {
 }
 
 export default function NaverMap({
-  userId, tiles, myPosition, initialPosition, pathCoords, tileOwners = {},
-  onBoundsChange, onCenterChange, onPositionOverride,
+  userId, tiles, myPosition, initialPosition, tileOwners = {},
+  previewPosition,
+  onBoundsChange, onCenterChange, onPositionOverride, onUserClick,
+  flyTo,
 }: NaverMapProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef       = useRef<naver.maps.Map | null>(null);
-  const polygsRef    = useRef<naver.maps.Polygon[]>([]);
-  const labelsRef    = useRef<Map<string, naver.maps.Marker>>(new Map());
-  const myMarkerRef  = useRef<naver.maps.Marker | null>(null);
-  const polylineRef  = useRef<naver.maps.Polyline | null>(null);
+  const containerRef    = useRef<HTMLDivElement>(null);
+  const mapRef          = useRef<naver.maps.Map | null>(null);
+  const polygsRef       = useRef<naver.maps.Polygon[]>([]);
+  const labelsRef       = useRef<Map<string, naver.maps.Marker>>(new Map());
+  const markerMetaRef   = useRef<Map<string, { colorIdx: number; name: string }>>(new Map());
+  const zoomRef         = useRef<number>(17);
+  const myMarkerRef     = useRef<naver.maps.Marker | null>(null);
+  const previewPolyRef  = useRef<naver.maps.Polygon | null>(null);
+  // 타일 렌더링과 동일한 좌표 변환 함수를 프리뷰에서도 재사용
+  const toLatLngRef     = useRef<((cx: number, cy: number) => naver.maps.LatLng) | null>(null);
   const [mapReady, setMapReady] = useState(false);
+
+  // 줌 < 18: 비숑 핀 / 줌 >= 18: 아바타 카드 (zoom18≈50m)
+  const getPinContent = (stroke: string) =>
+    `<div style="width:28px;height:28px;border-radius:50%;background:${stroke};border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35);cursor:pointer;pointer-events:auto;display:flex;align-items:center;justify-content:center;">
+      <img src="/bichon.png" style="width:20px;height:20px;object-fit:contain;" />
+    </div>`;
+
+  const getAvatarContent = (uid: string, name: string, stroke: string) => `
+    <div style="display:flex;flex-direction:column;align-items:center;pointer-events:auto;cursor:pointer;">
+      <div style="width:56px;height:56px;border-radius:50%;border:3px solid ${stroke};box-sizing:border-box;box-shadow:0 2px 10px rgba(0,0,0,0.45);overflow:hidden;background:white;">
+        <img src="https://place.dog/56/56?${uid.slice(0,6)}" alt="${name}"
+          style="width:100%;height:100%;object-fit:cover;"
+          onerror="this.style.display='none';this.parentNode.innerHTML='<div style=\\'width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:26px;\\'>🐕</div>'"
+        />
+      </div>
+      <div style="margin-top:4px;background:rgba(17,24,39,0.88);backdrop-filter:blur(4px);color:white;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.4);">${name}</div>
+      <div style="width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:9px solid ${stroke};margin-top:2px;"></div>
+    </div>`;
+
+  const refreshMarkerIcons = useCallback((zoom: number) => {
+    if (!window.naver?.maps) return;
+    labelsRef.current.forEach((marker, uid) => {
+      const meta = markerMetaRef.current.get(uid);
+      if (!meta) return;
+      const [, stroke] = RIVAL_COLORS[meta.colorIdx];
+      const detailed = zoom >= 18;
+      marker.setIcon({
+        content: detailed ? getAvatarContent(uid, meta.name, stroke) : getPinContent(stroke),
+        anchor: new window.naver.maps.Point(detailed ? 28 : 14, detailed ? 91 : 14),
+      });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const initMap = useCallback(() => {
     if (!containerRef.current || mapRef.current || !initialPosition) return;
 
     const center = new window.naver.maps.LatLng(initialPosition.lat, initialPosition.lng);
     const map = new window.naver.maps.Map(containerRef.current, {
-      center, zoom: 17, minZoom: 14, maxZoom: 20,
+      center, zoom: 17, minZoom: 14, maxZoom: 21,
     });
 
     window.naver.maps.Event.addListener(map, 'idle', () => {
@@ -168,13 +230,26 @@ export default function NaverMap({
       onCenterChange(c.lat(), c.lng());
     });
 
+    window.naver.maps.Event.addListener(map, 'zoom_changed', () => {
+      const z = map.getZoom();
+      zoomRef.current = z;
+      refreshMarkerIcons(z);
+    });
+
     mapRef.current = map;
     setMapReady(true);
-  }, [initialPosition, onBoundsChange, onCenterChange]);
+  }, [initialPosition, onBoundsChange, onCenterChange, refreshMarkerIcons]);
 
   useEffect(() => {
     if (window.naver?.maps) initMap();
   }, [initMap]);
+
+  // 현재 위치로 이동 + 줌 설정
+  useEffect(() => {
+    if (!flyTo || !mapRef.current || !window.naver?.maps) return;
+    mapRef.current.setCenter(new window.naver.maps.LatLng(flyTo.lat, flyTo.lng));
+    mapRef.current.setZoom(flyTo.zoom);
+  }, [flyTo]);
 
   // 타일 변경 시 폴리곤 + 라벨 재렌더
   useEffect(() => {
@@ -186,6 +261,7 @@ export default function NaverMap({
     polygsRef.current = [];
     labelsRef.current.forEach(m => m.setMap(null));
     labelsRef.current.clear();
+    markerMetaRef.current.clear();
 
     // 전체 타일에서 공통 기준점 계산 (모든 유저가 같은 좌표계를 공유해야 경계가 맞물림)
     const occupiedTiles = tiles.filter(t => t.occupantUserId);
@@ -199,6 +275,8 @@ export default function NaverMap({
         (globalRef.lat - HALF_LAT) + (cy - refGy) * 2 * HALF_LAT,
         (globalRef.lng - HALF_LNG) + (cx - refGx) * 2 * HALF_LNG,
       );
+      // 프리뷰에서도 동일한 함수 공유
+      toLatLngRef.current = toLatLng;
     }
 
     // 유저별 타일 그룹
@@ -226,6 +304,9 @@ export default function NaverMap({
           strokeWeight: 2,
           strokeOpacity: 1,
         });
+        if (!isMine && onUserClick) {
+          window.naver.maps.Event.addListener(polygon, 'click', () => onUserClick(uid));
+        }
         polygsRef.current.push(polygon);
       });
 
@@ -245,42 +326,21 @@ export default function NaverMap({
       }, 0) / userTiles.length;
       const centerPos = toLatLng(avgGx, avgGy);
 
+      const colorIdx = hashIndex(uid, RIVAL_COLORS.length);
+      const detailed = zoomRef.current >= 18;
       const marker = new window.naver.maps.Marker({
         map,
         position: centerPos,
         icon: {
-          content: `
-            <div style="display:flex;flex-direction:column;align-items:center;pointer-events:none;">
-              <div style="
-                width:56px;height:56px;border-radius:50%;
-                border:3px solid ${stroke};box-sizing:border-box;
-                box-shadow:0 2px 10px rgba(0,0,0,0.45);
-                overflow:hidden;background:white;
-              ">
-                <img src="https://place.dog/56/56?${uid.slice(0,6)}" alt="${name}"
-                  style="width:100%;height:100%;object-fit:cover;"
-                  onerror="this.style.display='none';this.parentNode.innerHTML='<div style=\\'width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:26px;\\'>🐕</div>'"
-                />
-              </div>
-              <div style="
-                margin-top:4px;
-                background:rgba(17,24,39,0.88);backdrop-filter:blur(4px);
-                color:white;padding:2px 8px;border-radius:10px;
-                font-size:11px;font-weight:700;white-space:nowrap;
-                box-shadow:0 2px 6px rgba(0,0,0,0.4);
-              ">${name}</div>
-              <div style="
-                width:0;height:0;
-                border-left:7px solid transparent;
-                border-right:7px solid transparent;
-                border-top:9px solid ${stroke};
-                margin-top:2px;
-              "></div>
-            </div>`,
-          anchor: new window.naver.maps.Point(28, 91),
+          content: detailed ? getAvatarContent(uid, name, stroke) : getPinContent(stroke),
+          anchor: new window.naver.maps.Point(detailed ? 28 : 14, detailed ? 91 : 14),
         },
         zIndex: 10,
       });
+      markerMetaRef.current.set(uid, { colorIdx, name });
+      if (onUserClick) {
+        window.naver.maps.Event.addListener(marker, 'click', () => onUserClick(uid));
+      }
       labelsRef.current.set(uid, marker);
     });
   }, [tiles, userId, mapReady, tileOwners]);
@@ -310,25 +370,48 @@ export default function NaverMap({
     }
   }, [myPosition, mapReady]);
 
-  // 산책 경로 폴리라인
+
+  // 현재 위치 타일 프리뷰 폴리곤
+  // gx/gy 계산은 Mercator(백엔드와 동일), 코너 변환은 toLatLngRef(타일 렌더링과 동일) 사용
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapReady || !window.naver?.maps || pathCoords.length < 2) return;
+    if (!map || !mapReady || !window.naver?.maps) return;
 
-    const path = pathCoords.map(c => new window.naver.maps.LatLng(c.lat, c.lng));
-    if (polylineRef.current) {
-      polylineRef.current.setPath(path as unknown as naver.maps.ArrayOfCoords);
+    if (!previewPosition || !toLatLngRef.current) {
+      previewPolyRef.current?.setMap(null);
+      previewPolyRef.current = null;
+      return;
+    }
+
+    const mx = lngToX(previewPosition.lng);
+    const my = latToY(previewPosition.lat);
+    const gx = Math.floor(mx / TILE_M);
+    const gy = Math.floor(my / TILE_M);
+
+    const toLL = toLatLngRef.current;
+    const paths = [
+      toLL(gx,     gy),
+      toLL(gx + 1, gy),
+      toLL(gx + 1, gy + 1),
+      toLL(gx,     gy + 1),
+    ];
+
+    if (previewPolyRef.current) {
+      previewPolyRef.current.setPaths([paths] as unknown as naver.maps.ArrayOfCoords[]);
     } else {
-      polylineRef.current = new window.naver.maps.Polyline({
+      previewPolyRef.current = new window.naver.maps.Polygon({
         map,
-        path: path as unknown as naver.maps.ArrayOfCoords,
-        strokeColor: '#60A5FA',
-        strokeWeight: 4,
-        strokeOpacity: 0.8,
-        strokeStyle: 'solid',
+        paths: [paths] as unknown as naver.maps.ArrayOfCoords[],
+        fillColor: 'rgba(250, 204, 21, 0.30)',
+        fillOpacity: 1,
+        strokeColor: '#EAB308',
+        strokeWeight: 2.5,
+        strokeOpacity: 0.9,
+        strokeStyle: 'dashed' as unknown as naver.maps.StrokeStyleType,
+        zIndex: 5,
       });
     }
-  }, [pathCoords, mapReady]);
+  }, [previewPosition, mapReady, tiles]);
 
   return (
     <>

@@ -10,13 +10,13 @@ const notoSansKR = Noto_Sans_KR({
 });
 
 export const metadata: Metadata = {
-  title: 'Pet Territory',
+  title: '펫국지',
   description: '반려견과 함께 동네를 점령하세요',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'Pet Territory',
+    title: '펫국지',
   },
 };
 

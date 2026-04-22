@@ -86,3 +86,16 @@ export interface LeaderboardData {
   byTile: LeaderboardEntry[];
   byScore: LeaderboardEntry[];
 }
+
+/** 유저 프로필 (다른 유저 조회 포함) */
+export interface UserProfile {
+  userId: string;
+  displayName: string;
+  dogName: string;
+  dogBreed: string | null;
+  dogAge: string | null;
+  dogPersonality: string | null;
+  photoUrl: string | null;
+  totalScore: number;
+  tileCount: number;
+}

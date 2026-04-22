@@ -1,6 +1,6 @@
 {
-  "name": "Pet Territory",
-  "short_name": "Pet Territory",
+  "name": "펫국지",
+  "short_name": "펫국지",
   "description": "반려견과 함께 동네를 점령하세요",
   "start_url": "/map",
   "display": "standalone",
