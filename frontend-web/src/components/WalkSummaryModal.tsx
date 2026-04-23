@@ -216,14 +216,26 @@ export default function WalkSummaryModal({ summary, onClose, isPast, dateLabel }
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('petProfile');
+      const saved = localStorage.getItem('petProfiles');
+      const idxStr = localStorage.getItem('activePetIdx');
       if (saved) {
-        const parsed = JSON.parse(saved);
-        setPet({
-          name: parsed.name || '우리 강아지',
-          photoUrl: parsed.photoUrl,
-          weight: parsed.weight || 5,
-        });
+        const arr = JSON.parse(saved);
+        const idx = idxStr ? Math.min(Number(idxStr), arr.length - 1) : 0;
+        const parsed = arr[idx];
+        if (parsed) {
+          setPet({
+            name: parsed.name || '우리 강아지',
+            photoUrl: parsed.photoUrl,
+            weight: parsed.weight || 5,
+          });
+          return;
+        }
+      }
+      // 구버전 fallback
+      const legacy = localStorage.getItem('petProfile');
+      if (legacy) {
+        const parsed = JSON.parse(legacy);
+        setPet({ name: parsed.name || '우리 강아지', photoUrl: parsed.photoUrl, weight: parsed.weight || 5 });
       }
     } catch {}
   }, []);

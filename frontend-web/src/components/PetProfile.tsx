@@ -227,19 +227,6 @@ const DEFAULT_PET: PetData = {
   weight: 5,
 };
 
-function formatTime(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
-function calcCalories(weight: number, seconds: number): number {
-  const hours = seconds / 3600;
-  return Math.round((0.8 / 0.453) * weight * hours);
-}
-
 function todayLabel(): string {
   const now = new Date();
   const days = ['일', '월', '화', '수', '목', '금', '토'];
