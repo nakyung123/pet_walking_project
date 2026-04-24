@@ -11,7 +11,7 @@ const firebaseConfig = {
 };
 
 // 중복 초기화 방지
-const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+export const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();

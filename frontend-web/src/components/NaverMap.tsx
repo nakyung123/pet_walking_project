@@ -8,6 +8,8 @@ export interface Tile {
   lat: number;
   lng: number;
   occupantUserId: string | null;
+  occupancyScore?: number;
+  lastMarkedAt?: string | null;
 }
 
 interface NaverMapProps {
@@ -23,6 +25,8 @@ interface NaverMapProps {
   onCenterChange: (lat: number, lng: number) => void;
   onPositionOverride?: (lat: number, lng: number) => void;
   onUserClick?: (userId: string) => void;
+  onTileClick?: (tile: Tile | null, lat: number, lng: number) => void;
+  highlightLatLng?: { lat: number; lng: number } | null;
   flyTo?: { lat: number; lng: number; zoom: number } | null;
 }
 
@@ -161,10 +165,19 @@ function buildBoundaryPolygons(tiles: Tile[]): [number, number][][] {
   return polygons;
 }
 
+function findTileByLatLng(lat: number, lng: number, tileList: Tile[]): Tile | null {
+  const mx = lngToX(lng);
+  const my = latToY(lat);
+  const gx = Math.floor(mx / TILE_M);
+  const gy = Math.floor(my / TILE_M);
+  const tileId = `${gx}_${gy}`;
+  return tileList.find(t => t.tileId === tileId) ?? null;
+}
+
 export default function NaverMap({
   userId, tiles, myPosition, initialPosition, tileOwners = {},
-  previewPosition,
-  onBoundsChange, onCenterChange, onPositionOverride, onUserClick,
+  previewPosition, highlightLatLng,
+  onBoundsChange, onCenterChange, onPositionOverride, onUserClick, onTileClick,
   flyTo,
 }: NaverMapProps) {
   const containerRef    = useRef<HTMLDivElement>(null);
@@ -178,6 +191,14 @@ export default function NaverMap({
   // 타일 렌더링과 동일한 좌표 변환 함수를 프리뷰에서도 재사용
   const toLatLngRef     = useRef<((cx: number, cy: number) => naver.maps.LatLng) | null>(null);
   const [mapReady, setMapReady] = useState(false);
+  const highlightPolyRef = useRef<naver.maps.Polygon | null>(null);
+  const conquerablePolygsRef = useRef<naver.maps.Polygon[]>([]);
+  const warningMarkersRef = useRef<naver.maps.Marker[]>([]);
+  const tilesRef = useRef<Tile[]>(tiles);
+  const onTileClickRef = useRef(onTileClick);
+
+  useEffect(() => { tilesRef.current = tiles; }, [tiles]);
+  useEffect(() => { onTileClickRef.current = onTileClick; }, [onTileClick]);
 
   // 줌 < 18: 비숑 핀 / 줌 >= 18: 아바타 카드 (zoom18≈50m)
   const getPinContent = (stroke: string) =>
@@ -236,6 +257,13 @@ export default function NaverMap({
       refreshMarkerIcons(z);
     });
 
+    window.naver.maps.Event.addListener(map, 'click', (e: { coord: naver.maps.LatLng }) => {
+      const lat = e.coord.lat();
+      const lng = e.coord.lng();
+      const found = findTileByLatLng(lat, lng, tilesRef.current);
+      onTileClickRef.current?.(found, lat, lng);
+    });
+
     mapRef.current = map;
     setMapReady(true);
   }, [initialPosition, onBoundsChange, onCenterChange, refreshMarkerIcons]);
@@ -262,6 +290,10 @@ export default function NaverMap({
     labelsRef.current.forEach(m => m.setMap(null));
     labelsRef.current.clear();
     markerMetaRef.current.clear();
+    conquerablePolygsRef.current.forEach(p => p.setMap(null));
+    conquerablePolygsRef.current = [];
+    warningMarkersRef.current.forEach(m => m.setMap(null));
+    warningMarkersRef.current = [];
 
     // 전체 타일에서 공통 기준점 계산 (모든 유저가 같은 좌표계를 공유해야 경계가 맞물림)
     const occupiedTiles = tiles.filter(t => t.occupantUserId);
@@ -305,7 +337,20 @@ export default function NaverMap({
           strokeOpacity: 1,
         });
         if (!isMine && onUserClick) {
-          window.naver.maps.Event.addListener(polygon, 'click', () => onUserClick(uid));
+          window.naver.maps.Event.addListener(polygon, 'click', (e: { coord: naver.maps.LatLng }) => {
+            onUserClick(uid);
+            const lat = e.coord.lat();
+            const lng = e.coord.lng();
+            const found = findTileByLatLng(lat, lng, userTiles);
+            onTileClickRef.current?.(found ?? userTiles[0] ?? null, lat, lng);
+          });
+        } else if (isMine) {
+          window.naver.maps.Event.addListener(polygon, 'click', (e: { coord: naver.maps.LatLng }) => {
+            const lat = e.coord.lat();
+            const lng = e.coord.lng();
+            const found = findTileByLatLng(lat, lng, userTiles);
+            onTileClickRef.current?.(found ?? userTiles[0] ?? null, lat, lng);
+          });
         }
         polygsRef.current.push(polygon);
       });
@@ -343,6 +388,63 @@ export default function NaverMap({
       }
       labelsRef.current.set(uid, marker);
     });
+
+    // 점유 가능 영역 (내 타일 인접, 내 것이 아닌 타일) — 초록 점선
+    const myTilesGroup = groups.get(userId) ?? [];
+    if (myTilesGroup.length > 0 && globalRef) {
+      const myTileIds = new Set(myTilesGroup.map(t => t.tileId));
+      const conquerable = new Map<string, string>();
+
+      myTilesGroup.forEach(t => {
+        const u = t.tileId.indexOf('_');
+        const gx = parseInt(t.tileId.slice(0, u), 10);
+        const gy = parseInt(t.tileId.slice(u + 1), 10);
+        for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+          const adjId = `${gx + dx}_${gy + dy}`;
+          if (!myTileIds.has(adjId)) conquerable.set(adjId, adjId);
+        }
+      });
+
+      const fakeTiles: Tile[] = [...conquerable.keys()].map(tileId => ({
+        tileId, lat: 0, lng: 0, occupantUserId: null,
+      }));
+
+      buildBoundaryPolygons(fakeTiles).forEach(corners => {
+        const polygon = new window.naver.maps.Polygon({
+          map,
+          paths: [corners.map(([cx, cy]) => toLatLng(cx, cy))] as unknown as naver.maps.ArrayOfCoords[],
+          fillColor: 'rgba(16, 185, 129, 0.08)',
+          fillOpacity: 1,
+          strokeColor: '#10B981',
+          strokeWeight: 1.5,
+          strokeOpacity: 0.65,
+          strokeStyle: 'dashed' as unknown as naver.maps.StrokeStyleType,
+          zIndex: 3,
+        });
+        conquerablePolygsRef.current.push(polygon);
+      });
+
+      // 갱신 필요 경고 마커 (20시간 이상 미방문 내 타일)
+      const WARN_MS = 20 * 60 * 60 * 1000;
+      myTilesGroup.forEach(t => {
+        if (!t.lastMarkedAt) return;
+        if (Date.now() - new Date(t.lastMarkedAt).getTime() <= WARN_MS) return;
+        const u = t.tileId.indexOf('_');
+        const gx = parseInt(t.tileId.slice(0, u), 10);
+        const gy = parseInt(t.tileId.slice(u + 1), 10);
+        const center = toLatLng(gx + 0.5, gy + 0.5);
+        const warnMarker = new window.naver.maps.Marker({
+          map,
+          position: center,
+          icon: {
+            content: `<div style="width:16px;height:16px;border-radius:50%;background:#EF4444;border:2px solid white;display:flex;align-items:center;justify-content:center;font-size:9px;color:white;font-weight:900;box-shadow:0 1px 4px rgba(0,0,0,0.3);">!</div>`,
+            anchor: new window.naver.maps.Point(8, 8),
+          },
+          zIndex: 11,
+        });
+        warningMarkersRef.current.push(warnMarker);
+      });
+    }
   }, [tiles, userId, mapReady, tileOwners]);
 
   // 내 위치 마커
@@ -412,6 +514,47 @@ export default function NaverMap({
       });
     }
   }, [previewPosition, mapReady, tiles]);
+
+  // 선택된 타일 하이라이트 (파란 외곽선)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !window.naver?.maps) return;
+
+    if (!highlightLatLng) {
+      highlightPolyRef.current?.setMap(null);
+      highlightPolyRef.current = null;
+      return;
+    }
+
+    const { lat, lng } = highlightLatLng;
+    const mx = lngToX(lng);
+    const my = latToY(lat);
+    const gx = Math.floor(mx / TILE_M);
+    const gy = Math.floor(my / TILE_M);
+
+    let paths: naver.maps.LatLng[];
+    if (toLatLngRef.current) {
+      const toLL = toLatLngRef.current;
+      paths = [toLL(gx, gy), toLL(gx + 1, gy), toLL(gx + 1, gy + 1), toLL(gx, gy + 1)];
+    } else {
+      paths = calcPreviewCorners(lat, lng).map(([lng2, lat2]) => new window.naver.maps.LatLng(lat2, lng2));
+    }
+
+    if (highlightPolyRef.current) {
+      highlightPolyRef.current.setPaths([paths] as unknown as naver.maps.ArrayOfCoords[]);
+    } else {
+      highlightPolyRef.current = new window.naver.maps.Polygon({
+        map,
+        paths: [paths] as unknown as naver.maps.ArrayOfCoords[],
+        fillColor: 'rgba(59, 130, 246, 0.20)',
+        fillOpacity: 1,
+        strokeColor: '#3B82F6',
+        strokeWeight: 3,
+        strokeOpacity: 1,
+        zIndex: 9,
+      });
+    }
+  }, [highlightLatLng, mapReady, tiles]);
 
   return (
     <>

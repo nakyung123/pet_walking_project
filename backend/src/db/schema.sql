@@ -80,3 +80,78 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS dog_breed      TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS dog_age        TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS dog_personality TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_url      TEXT;
+
+-- ============================================================
+-- 6. 커뮤니티: 게시글
+-- ============================================================
+CREATE TABLE IF NOT EXISTS posts (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  category      TEXT NOT NULL CHECK (category IN ('walk_log', 'brag', 'other')),
+  title         TEXT NOT NULL,
+  content       TEXT NOT NULL,
+  like_count    INT DEFAULT 0,
+  comment_count INT DEFAULT 0,
+  created_at    TIMESTAMPTZ DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_posts_user     ON posts (user_id);
+CREATE INDEX IF NOT EXISTS idx_posts_category ON posts (category);
+CREATE INDEX IF NOT EXISTS idx_posts_created  ON posts (created_at DESC);
+
+-- ============================================================
+-- 7. 커뮤니티: 게시글 이미지 (최대 3장)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS post_images (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  post_id     UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  url         TEXT NOT NULL,
+  order_index INT NOT NULL DEFAULT 0,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_post_images_post ON post_images (post_id);
+
+-- ============================================================
+-- 8. 커뮤니티: 댓글 (무한 중첩, parent_id=NULL 이면 최상위)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS comments (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  post_id    UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  parent_id  UUID REFERENCES comments(id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  content    TEXT NOT NULL,
+  depth      INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_comments_post   ON comments (post_id);
+CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments (parent_id);
+
+-- ============================================================
+-- 9. 커뮤니티: 좋아요 (post_id + user_id 복합 PK)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS post_likes (
+  post_id    UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (post_id, user_id)
+);
+
+-- ============================================================
+-- 10. 커뮤니티: 신고 (게시글 또는 댓글 대상)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS reports (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  reporter_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  post_id     UUID REFERENCES posts(id) ON DELETE CASCADE,
+  comment_id  UUID REFERENCES comments(id) ON DELETE CASCADE,
+  reason      TEXT,
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT chk_report_target CHECK (
+    (post_id IS NOT NULL AND comment_id IS NULL) OR
+    (post_id IS NULL AND comment_id IS NOT NULL)
+  )
+);

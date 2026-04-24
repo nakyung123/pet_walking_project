@@ -18,6 +18,7 @@ export interface Tile {
   lng: number;
   occupantUserId: string | null;
   occupancyScore: number;
+  lastMarkedAt: string | null;
 }
 
 /** 마킹 요청 페이로드 */
@@ -98,4 +99,65 @@ export interface UserProfile {
   photoUrl: string | null;
   totalScore: number;
   tileCount: number;
+}
+
+// ========================
+// 커뮤니티 타입
+// ========================
+
+export type PostCategory = 'walk_log' | 'brag' | 'other';
+
+export interface PostImage {
+  id: string;
+  postId: string;
+  url: string;
+  orderIndex: number;
+}
+
+export interface Post {
+  id: string;
+  userId: string;
+  displayName: string;
+  photoUrl: string | null;
+  category: PostCategory;
+  title: string;
+  content: string;
+  images: PostImage[];
+  likeCount: number;
+  commentCount: number;
+  likedByMe: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Comment {
+  id: string;
+  postId: string;
+  parentId: string | null;
+  userId: string;
+  displayName: string;
+  photoUrl: string | null;
+  content: string;
+  depth: number;
+  replies: Comment[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatePostInput {
+  category: PostCategory;
+  title: string;
+  content: string;
+  imageUrls: string[];
+}
+
+export interface CreateCommentInput {
+  parentId?: string;
+  content: string;
+}
+
+export interface ReportInput {
+  postId?: string;
+  commentId?: string;
+  reason?: string;
 }

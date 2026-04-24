@@ -50,3 +50,4 @@ postgres_data/
 Thumbs.db
 .vscode/settings.json
 *.log
+.gstack/

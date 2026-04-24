@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { toAreaKey } from '@/lib/areaKey';
+import { ChatMessage } from '@/services/api';
 
 const SERVER = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -11,13 +12,18 @@ export interface TileUpdatedPayload {
   occupantUserId: string | null;
 }
 
+export interface NewMessagePayload {
+  message: ChatMessage;
+}
+
 interface UseSocketOptions {
   idToken: string | null;
   onTileUpdated: (payload: TileUpdatedPayload) => void;
+  onNewMessage?: (payload: NewMessagePayload) => void;
   onConnectError: () => void;
 }
 
-export function useSocket({ idToken, onTileUpdated, onConnectError }: UseSocketOptions) {
+export function useSocket({ idToken, onTileUpdated, onNewMessage, onConnectError }: UseSocketOptions) {
   const socketRef = useRef<Socket | null>(null);
   const areaKeyRef = useRef<string | null>(null);
 
@@ -31,6 +37,7 @@ export function useSocket({ idToken, onTileUpdated, onConnectError }: UseSocketO
 
     socket.on('connect_error', onConnectError);
     socket.on('tile_updated', onTileUpdated);
+    if (onNewMessage) socket.on('new_message', onNewMessage);
 
     socketRef.current = socket;
 

@@ -2,6 +2,7 @@ import { Server as HttpServer } from 'http';
 import { Server as IOServer, Socket } from 'socket.io';
 import admin from './firebase';
 import { isValidAreaKey } from './utils/areaKey';
+import type { ChatMessage } from './services/chatService';
 
 export interface TileUpdatedPayload {
   tileId: string;
@@ -47,6 +48,9 @@ export function initSocketIO(httpServer: HttpServer): IOServer {
     const uid = (socket as Socket & { uid: string }).uid;
     console.log(`[Socket] 연결: ${socket.id} (uid=${uid})`);
 
+    // 유저 개인 룸 자동 입장 (DM 수신용)
+    socket.join(`user:${uid}`);
+
     // 클라이언트가 특정 areaKey 룸에 입장
     socket.on('join_area', (areaKey: unknown) => {
       if (!isValidAreaKey(areaKey)) {
@@ -71,6 +75,18 @@ export function initSocketIO(httpServer: HttpServer): IOServer {
 
   console.log('[Socket] Socket.IO 서버 초기화 완료');
   return io;
+}
+
+/**
+ * 메시지 전송 후 대화 참여자 두 명의 개인 룸에 new_message 이벤트 전송.
+ * chatController.ts에서 호출합니다.
+ */
+export function emitNewMessage(userId1: string, userId2: string, message: ChatMessage): void {
+  if (!io) return;
+  const payload = { message };
+  io.to(`user:${userId1}`).emit('new_message', payload);
+  io.to(`user:${userId2}`).emit('new_message', payload);
+  console.log(`[Socket] new_message → user:${userId1}, user:${userId2}`);
 }
 
 /**

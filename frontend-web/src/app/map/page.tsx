@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { useGPS } from '@/hooks/useGPS';
 import { useSocket, TileUpdatedPayload } from '@/hooks/useSocket';
-import { getTiles, postMarking, startSession, getScore, getOccupiedTiles, getLeaderboard, deleteTile, getUserProfile, UserProfile } from '@/services/api';
+import { getTiles, postMarking, startSession, getScore, getOccupiedTiles, getLeaderboard, deleteTile, getUserProfile, UserProfile, LeaderboardEntry } from '@/services/api';
 import NaverMap, { Tile } from '@/components/NaverMap';
 import MarkingButton from '@/components/MarkingButton';
 import ScorePanel from '@/components/ScorePanel';
@@ -15,6 +15,11 @@ import PetProfile from '@/components/PetProfile';
 import OnboardingGuide from '@/components/OnboardingGuide';
 import WalkSummaryModal, { WalkSummaryData } from '@/components/WalkSummaryModal';
 import UserProfilePopup from '@/components/UserProfilePopup';
+import ChatList from '@/components/ChatList';
+import CommunityPanel from '@/components/CommunityPanel';
+import { ChatUser } from '@/components/ChatRoom';
+import TileInfoCard from '@/components/TileInfoCard';
+import ActionHint, { HintItem } from '@/components/ActionHint';
 
 type Bounds = { minLat: number; maxLat: number; minLng: number; maxLng: number };
 type TileFilter = 'all' | 'mine' | 'rivals';
@@ -26,6 +31,17 @@ const MISSIONS = [
   { emoji: '🤝', text: '친구와 함께 산책하면 협동 보너스' },
   { emoji: '⭐', text: '오늘 1칸만 더 마킹하면 미션 완료!' },
 ];
+
+// 타일 ID 계산 (NaverMap과 동일한 공식)
+const _R = 6378137;
+const _TILE_M = 50;
+const _lngToX = (lng: number) => (lng * Math.PI / 180) * _R;
+const _latToY = (lat: number) => Math.log(Math.tan((90 + lat) * Math.PI / 360)) * _R;
+const computeTileId = (lat: number, lng: number): string => {
+  const gx = Math.floor(_lngToX(lng) / _TILE_M);
+  const gy = Math.floor(_latToY(lat) / _TILE_M);
+  return `${gx}_${gy}`;
+};
 
 interface SimplePet { name: string; photoUrl?: string; }
 
@@ -46,8 +62,7 @@ export default function MapPage() {
   // race condition 방지: 가장 마지막 요청만 반영
   const fetchCounterRef = useRef(0);
 
-  // 마킹 / 삭제 버튼
-  const [marking, setMarking] = useState(false);
+  // 삭제 버튼
   const [deleting, setDeleting] = useState(false);
   const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
 
@@ -61,12 +76,27 @@ export default function MapPage() {
   const walkStartPositionRef = useRef<{ lat: number; lng: number } | null>(null);
   const walkStartScoreRef = useRef<number>(0);
   const walkStartTileCountRef = useRef<number>(0);
+  const lastAutoMarkTileIdRef = useRef<string | null>(null);
   const [walkSeconds, setWalkSeconds] = useState(0);
   const [walkDistance, setWalkDistance] = useState(0);
   const [walkSummary, setWalkSummary] = useState<WalkSummaryData | null>(null);
 
   // 다른 유저 프로필 팝업
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+
+  // 채팅
+  const [showChatList, setShowChatList] = useState(false);
+  const [showCommunity, setShowCommunity] = useState(false);
+  const [pendingChatUser, setPendingChatUser] = useState<ChatUser | null>(null);
+
+  // 타일 정보 카드
+  const [selectedTile, setSelectedTile] = useState<Tile | null | undefined>(undefined);
+  const [selectedTileLatLng, setSelectedTileLatLng] = useState<{ lat: number; lng: number } | null>(null);
+
+  const handleTileClick = useCallback((tile: Tile | null, lat: number, lng: number) => {
+    setSelectedTile(tile);
+    setSelectedTileLatLng({ lat, lng });
+  }, []);
 
   // 좌측 아이콘 상태
   const [missionState, setMissionState] = useState<'hidden' | 'popup' | 'banner'>('hidden');
@@ -79,6 +109,9 @@ export default function MapPage() {
 
   // 타일 소유자 이름 (userId → displayName)
   const [tileOwners, setTileOwners] = useState<Record<string, string>>({});
+
+  // 랭킹 데이터 (추천 행동 힌트용)
+  const [leaderboardByScore, setLeaderboardByScore] = useState<LeaderboardEntry[]>([]);
 
   // 타일 필터
   const [tileFilter, setTileFilter] = useState<TileFilter>('all');
@@ -100,6 +133,32 @@ export default function MapPage() {
       const idx = localStorage.getItem('activePetIdx');
       if (saved) setPetList(JSON.parse(saved));
       if (idx) setActivePetIdx(Number(idx));
+    } catch {}
+  }, []);
+
+  // 테스트용 산책 데이터 시딩 (4월 22일 데이터가 없을 때만 삽입)
+  useEffect(() => {
+    try {
+      const existing: { date: string }[] = JSON.parse(localStorage.getItem('walkLogs') || '[]');
+      const alreadySeeded = existing.some(l => l.date === '2026-04-22');
+      if (!alreadySeeded) {
+        const testLog = {
+          date: '2026-04-22',
+          savedAt: new Date('2026-04-22T10:30:00').getTime(),
+          seconds: 2340,
+          distance: 1.8,
+          scoreGained: 45,
+          tilesGained: 12,
+          pathCoords: [
+            { lat: 37.5665, lng: 126.9780 },
+            { lat: 37.5670, lng: 126.9785 },
+            { lat: 37.5675, lng: 126.9790 },
+            { lat: 37.5680, lng: 126.9795 },
+            { lat: 37.5685, lng: 126.9800 },
+          ],
+        };
+        localStorage.setItem('walkLogs', JSON.stringify([...existing, testLog]));
+      }
     } catch {}
   }, []);
 
@@ -186,6 +245,7 @@ export default function MapPage() {
       : null;
     walkStartScoreRef.current = score;
     walkStartTileCountRef.current = curTileCount;
+    lastAutoMarkTileIdRef.current = null;
     setWalkSeconds(0);
     setWalkDistance(0);
     setIsWalking(true);
@@ -221,6 +281,55 @@ export default function MapPage() {
 
   // 점령 타일 수 (내 타일만)
   const myTileCount = tiles.filter((t) => t.occupantUserId === user?.uid).length;
+
+  // 추천 행동 힌트 계산
+  const actionHints = useMemo((): HintItem[] => {
+    if (!user) return [];
+    const hints: HintItem[] = [];
+
+    const myTileIds = new Set(tiles.filter(t => t.occupantUserId === user.uid).map(t => t.tileId));
+
+    // 점유 가능 인접 타일
+    const conquerable = new Set<string>();
+    myTileIds.forEach(tileId => {
+      const u = tileId.indexOf('_');
+      const gx = parseInt(tileId.slice(0, u), 10);
+      const gy = parseInt(tileId.slice(u + 1), 10);
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
+        const adjId = `${gx + dx}_${gy + dy}`;
+        if (!myTileIds.has(adjId)) conquerable.add(adjId);
+      }
+    });
+    if (conquerable.size > 0) {
+      hints.push({ icon: '⚔️', text: `점유 가능한 타일 ${conquerable.size}개`, variant: 'default' });
+    }
+
+    // 곧 만료될 내 타일
+    const WARN_MS = 20 * 60 * 60 * 1000;
+    const expiringCount = tiles.filter(t =>
+      t.occupantUserId === user.uid &&
+      t.lastMarkedAt &&
+      Date.now() - new Date(t.lastMarkedAt).getTime() > WARN_MS
+    ).length;
+    if (expiringCount > 0) {
+      hints.push({ icon: '⚠️', text: `내 영역 ${expiringCount}곳 곧 만료`, variant: 'warning' });
+    }
+
+    // 랭킹 gap
+    if (leaderboardByScore.length > 0) {
+      const myRankEntry = leaderboardByScore.find(e => e.userId === user.uid);
+      if (myRankEntry && myRankEntry.rank > 1) {
+        const targetRank = myRankEntry.rank > 10 ? 10 : 1;
+        const target = leaderboardByScore.find(e => e.rank === targetRank);
+        if (target) {
+          const diff = target.totalScore - myRankEntry.totalScore;
+          hints.push({ icon: '🏆', text: `${targetRank}위까지 ${diff.toLocaleString()}점`, variant: 'gold' });
+        }
+      }
+    }
+
+    return hints;
+  }, [tiles, user, leaderboardByScore]);
 
   // 필터 적용 타일
   const filteredTiles = useMemo(() => {
@@ -271,6 +380,7 @@ export default function MapPage() {
             owners[e.userId] = e.displayName;
           });
           setTileOwners(owners);
+          setLeaderboardByScore(leaderRes.data.byScore);
         }
       } catch (e) {
         console.error('[MapPage] 세션/점수 초기화 실패:', e);
@@ -334,15 +444,11 @@ export default function MapPage() {
     [updateArea],
   );
 
-  // 마킹 버튼 핸들러
+  // 자동 마킹 핸들러 (산책 중 새 타일 진입 시 호출)
   const handleMark = async () => {
     if (!user || !idToken || !effectivePosition || !sessionIdRef.current) return;
-    if (effectivePosition.speedKmh > 15) {
-      showToast('속도가 너무 빠릅니다. 걸어서 마킹하세요.', 'error');
-      return;
-    }
+    if (effectivePosition.speedKmh > 15) return;
 
-    setMarking(true);
     try {
       const now = new Date();
       const enteredAt = new Date(now.getTime() - 1000).toISOString();
@@ -363,9 +469,25 @@ export default function MapPage() {
         if (res.data.rejectedReason?.startsWith('cooldown:')) {
           const secs = parseInt(res.data.rejectedReason.split(':')[1], 10);
           setCooldownUntil(Date.now() + secs * 1000);
-          showToast(`${secs}초 후에 다시 마킹할 수 있습니다.`, 'info');
           return;
         }
+        // 마킹된 타일을 tileMapRef에 즉시 반영 (fetchTiles 응답 전 화면에 먼저 표시)
+        const { tileId: markedTileId, isOccupied } = res.data;
+        if (markedTileId && effectivePosition) {
+          const existing = tileMapRef.current.get(markedTileId);
+          if (existing) {
+            tileMapRef.current.set(markedTileId, { ...existing, occupantUserId: isOccupied ? user.uid : existing.occupantUserId });
+          } else {
+            tileMapRef.current.set(markedTileId, {
+              tileId: markedTileId,
+              lat: effectivePosition.lat,
+              lng: effectivePosition.lng,
+              occupantUserId: isOccupied ? user.uid : null,
+            });
+          }
+          setTiles(Array.from(tileMapRef.current.values()));
+        }
+
         // 타일 점수가 아닌 유저 총점을 다시 조회해서 반영
         const scoreBeforeMarking = score;
         const scoreRes = await getScore(user.uid, idToken);
@@ -379,7 +501,7 @@ export default function MapPage() {
             if (delta > 0) {
               records.push({ timestamp: Date.now(), type: 'marking', points: delta, label: '마킹 완료' });
             }
-            if (res.data.isOccupied) {
+            if (isOccupied) {
               records.push({ timestamp: Date.now() + 1, type: 'occupy', points: 1000, label: '타일 점유 성공' });
             }
             localStorage.setItem('pointHistory', JSON.stringify(records));
@@ -392,12 +514,23 @@ export default function MapPage() {
         );
       }
     } catch (e) {
-      console.error('[MapPage] 마킹 실패:', e);
-      showToast('마킹에 실패했습니다. 다시 시도해주세요.', 'error');
-    } finally {
-      setMarking(false);
+      console.error('[MapPage] 자동 마킹 실패:', e);
     }
   };
+
+  // handleMark 최신 참조 유지 (자동 마킹에서 stale closure 방지)
+  const handleMarkRef = useRef(handleMark);
+  useEffect(() => { handleMarkRef.current = handleMark; });
+
+  // 산책 중 자동 마킹: GPS 위치가 새 타일로 바뀔 때 자동 호출
+  useEffect(() => {
+    if (!isWalking || !effectivePosition) return;
+    if (cooldownUntil && Date.now() < cooldownUntil) return;
+    const tileId = computeTileId(effectivePosition.lat, effectivePosition.lng);
+    if (tileId === lastAutoMarkTileIdRef.current) return;
+    lastAutoMarkTileIdRef.current = tileId;
+    handleMarkRef.current();
+  }, [effectivePosition?.lat, effectivePosition?.lng, isWalking, cooldownUntil]);
 
   // 다른 유저 클릭 → 프로필 팝업
   const handleUserClick = useCallback(async (clickedUserId: string) => {
@@ -457,11 +590,25 @@ export default function MapPage() {
         onCenterChange={handleCenterChange}
         onPositionOverride={handlePositionOverride}
         onUserClick={handleUserClick}
+        onTileClick={handleTileClick}
+        highlightLatLng={selectedTile !== undefined ? selectedTileLatLng : null}
         flyTo={flyTo}
       />
 
       {/* 온보딩 가이드 */}
       <OnboardingGuide />
+
+      {/* 타일 정보 카드 */}
+      {selectedTile !== undefined && selectedTileLatLng && (
+        <TileInfoCard
+          tile={selectedTile}
+          currentUserId={user.uid}
+          tileOwners={tileOwners}
+          allTiles={tiles}
+          onClose={() => { setSelectedTile(undefined); setSelectedTileLatLng(null); }}
+          onViewProfile={handleUserClick}
+        />
+      )}
 
       {/* 상단 바 */}
       <ScorePanel
@@ -490,6 +637,9 @@ export default function MapPage() {
           ))}
         </div>
       </div>
+
+      {/* 추천 행동 힌트 */}
+      <ActionHint hints={actionHints} />
 
       {/* 미션 배너 — 필터 탭 아래 상시 표시 */}
       {missionState === 'banner' && (
@@ -537,12 +687,9 @@ export default function MapPage() {
 
       {/* 마킹 버튼 / 산책 시작하기 */}
       <MarkingButton
-        onMark={handleMark}
         onStartWalk={handleStartWalk}
         isWalking={isWalking}
         disabled={!effectivePosition}
-        loading={marking}
-        cooldownUntil={cooldownUntil}
       />
 
       {/* 산책 중 정보 pill */}
@@ -621,6 +768,22 @@ export default function MapPage() {
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="#F97316">
                   <path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/>
                 </svg>
+              </button>
+
+              {/* ④ 메시지 */}
+              <button
+                onClick={() => setShowChatList(true)}
+                className="w-11 h-11 rounded-full bg-white/95 backdrop-blur-sm border border-white/60 flex items-center justify-center shadow-lg active:scale-95 transition-transform text-xl"
+              >
+                💬
+              </button>
+
+              {/* ⑤ 커뮤니티 */}
+              <button
+                onClick={() => setShowCommunity(true)}
+                className="w-11 h-11 rounded-full bg-white/95 backdrop-blur-sm border border-white/60 flex items-center justify-center shadow-lg active:scale-95 transition-transform text-xl"
+              >
+                📋
               </button>
 
               {/* ③ 강아지 선택 — 현재 강아지 이름 표시 */}
@@ -721,6 +884,37 @@ export default function MapPage() {
         <UserProfilePopup
           profile={userProfile}
           onClose={() => setUserProfile(null)}
+          onMessage={(p) => {
+            setUserProfile(null);
+            setPendingChatUser({
+              userId: p.userId,
+              displayName: p.displayName,
+              dogName: p.dogName,
+              dogBreed: p.dogBreed,
+              dogAge: p.dogAge,
+              photoUrl: p.photoUrl,
+            });
+            setShowChatList(true);
+          }}
+        />
+      )}
+
+      {/* 채팅 */}
+      {showChatList && idToken && (
+        <ChatList
+          currentUserId={user.uid}
+          idToken={idToken}
+          initialChatUser={pendingChatUser ?? undefined}
+          onClose={() => { setShowChatList(false); setPendingChatUser(null); }}
+        />
+      )}
+
+      {/* 커뮤니티 */}
+      {showCommunity && idToken && (
+        <CommunityPanel
+          idToken={idToken}
+          currentUserId={user.uid}
+          onClose={() => setShowCommunity(false)}
         />
       )}
 

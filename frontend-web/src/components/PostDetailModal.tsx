@@ -1,0 +1,271 @@
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import {
+  getPostDetail, getComments, toggleLike, createComment,
+  deleteComment, deletePost, reportContent, Post, Comment,
+} from '@/services/api';
+
+interface Props {
+  postId: string;
+  idToken: string;
+  currentUserId: string;
+  onClose: () => void;
+  onDeleted: () => void;
+}
+
+function timeAgo(iso: string): string {
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return '방금';
+  if (mins < 60) return `${mins}분 전`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}시간 전`;
+  return `${Math.floor(hours / 24)}일 전`;
+}
+
+function CommentItem({
+  comment, depth, currentUserId, idToken, postId,
+  onReply, onDeleted, onReport,
+}: {
+  comment: Comment;
+  depth: number;
+  currentUserId: string;
+  idToken: string;
+  postId: string;
+  onReply: (id: string, name: string) => void;
+  onDeleted: (id: string) => void;
+  onReport: (commentId: string) => void;
+}) {
+  const isMe = comment.userId === currentUserId;
+  return (
+    <div style={{ marginLeft: depth * 16 }} className="mt-3">
+      <div className="flex gap-2">
+        <div className="w-7 h-7 rounded-full bg-orange-100 border border-orange-200 shrink-0 flex items-center justify-center text-xs font-bold text-orange-500">
+          {comment.displayName.slice(0, 1)}
+        </div>
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-gray-800">{comment.displayName}</span>
+            <span className="text-[10px] text-gray-400">{timeAgo(comment.createdAt)}</span>
+          </div>
+          <p className="text-sm text-gray-700 mt-0.5 leading-snug">{comment.content}</p>
+          <div className="flex gap-3 mt-1">
+            <button
+              onClick={() => onReply(comment.id, comment.displayName)}
+              className="text-[11px] text-orange-500 font-semibold"
+            >답글</button>
+            {!isMe && (
+              <button onClick={() => onReport(comment.id)} className="text-[11px] text-gray-400">신고</button>
+            )}
+            {isMe && (
+              <button onClick={() => onDeleted(comment.id)} className="text-[11px] text-red-400">삭제</button>
+            )}
+          </div>
+        </div>
+      </div>
+      {comment.replies.map((r) => (
+        <CommentItem
+          key={r.id}
+          comment={r}
+          depth={depth + 1}
+          currentUserId={currentUserId}
+          idToken={idToken}
+          postId={postId}
+          onReply={onReply}
+          onDeleted={onDeleted}
+          onReport={onReport}
+        />
+      ))}
+    </div>
+  );
+}
+
+export default function PostDetailModal({ postId, idToken, currentUserId, onClose, onDeleted }: Props) {
+  const [post, setPost]         = useState<Post | null>(null);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [input, setInput]       = useState('');
+  const [replyTo, setReplyTo]   = useState<{ id: string; name: string } | null>(null);
+  const [imageIdx, setImageIdx] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadPost = useCallback(async () => {
+    const [postRes, commentsRes] = await Promise.all([
+      getPostDetail(postId, idToken),
+      getComments(postId, idToken),
+    ]);
+    if (postRes.success && postRes.data) setPost(postRes.data);
+    if (commentsRes.success && commentsRes.data) setComments(commentsRes.data);
+  }, [postId, idToken]);
+
+  useEffect(() => { loadPost(); }, [loadPost]);
+
+  const handleLike = async () => {
+    if (!post) return;
+    const res = await toggleLike(postId, idToken);
+    if (res.success && res.data) {
+      setPost((p) => p ? { ...p, likedByMe: res.data!.liked, likeCount: res.data!.likeCount } : p);
+    }
+  };
+
+  const handleSubmitComment = async () => {
+    if (!input.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      const res = await createComment(postId, { parentId: replyTo?.id, content: input.trim() }, idToken);
+      if (res.success) {
+        setInput('');
+        setReplyTo(null);
+        await loadPost();
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    await deleteComment(postId, commentId, idToken);
+    await loadPost();
+  };
+
+  const handleDeletePost = async () => {
+    if (!post || post.userId !== currentUserId) return;
+    await deletePost(postId, idToken);
+    onDeleted();
+  };
+
+  const handleReport = async (commentId?: string) => {
+    await reportContent({ postId: commentId ? undefined : postId, commentId, reason: '부적절한 내용' }, idToken);
+    alert('신고가 접수되었습니다.');
+  };
+
+  if (!post) return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+
+  const isMyPost = post.userId === currentUserId;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative w-full max-w-lg bg-white rounded-t-3xl shadow-2xl flex flex-col max-h-[92vh]">
+        {/* 헤더 */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 shrink-0">
+          <button onClick={onClose} className="text-gray-400 text-sm">← 뒤로</button>
+          <div className="flex gap-2">
+            {!isMyPost && (
+              <button onClick={() => handleReport()} className="text-xs text-gray-400">신고</button>
+            )}
+            {isMyPost && (
+              <button onClick={handleDeletePost} className="text-xs text-red-400">삭제</button>
+            )}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {/* 이미지 슬라이더 */}
+          {post.images.length > 0 && (
+            <div className="relative bg-gray-100 aspect-video">
+              <img
+                src={post.images[imageIdx]?.url}
+                alt=""
+                className="w-full h-full object-cover"
+              />
+              {post.images.length > 1 && (
+                <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
+                  {post.images.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setImageIdx(i)}
+                      className={`w-1.5 h-1.5 rounded-full transition-colors ${i === imageIdx ? 'bg-white' : 'bg-white/50'}`}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 본문 */}
+          <div className="px-5 py-4">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-8 h-8 rounded-full bg-orange-100 border border-orange-200 flex items-center justify-center text-sm font-bold text-orange-500">
+                {post.displayName.slice(0, 1)}
+              </div>
+              <div>
+                <p className="text-sm font-bold text-gray-800">{post.displayName}</p>
+                <p className="text-[10px] text-gray-400">{timeAgo(post.createdAt)}</p>
+              </div>
+            </div>
+            <h2 className="text-base font-bold text-gray-900 mb-2">{post.title}</h2>
+            <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{post.content}</p>
+
+            {/* 좋아요 */}
+            <div className="flex items-center gap-4 mt-4 pt-4 border-t border-gray-100">
+              <button
+                onClick={handleLike}
+                className={`flex items-center gap-1.5 text-sm font-semibold transition-colors ${
+                  post.likedByMe ? 'text-orange-500' : 'text-gray-400'
+                }`}
+              >
+                <span className="text-base">{post.likedByMe ? '❤️' : '🤍'}</span>
+                {post.likeCount}
+              </button>
+              <span className="flex items-center gap-1.5 text-sm text-gray-400">
+                <span>💬</span>{post.commentCount}
+              </span>
+            </div>
+          </div>
+
+          {/* 댓글 목록 */}
+          <div className="px-5 pb-4 border-t border-gray-100">
+            <p className="text-xs font-bold text-gray-500 pt-4 mb-2">댓글 {comments.length}개</p>
+            {comments.map((c) => (
+              <CommentItem
+                key={c.id}
+                comment={c}
+                depth={0}
+                currentUserId={currentUserId}
+                idToken={idToken}
+                postId={postId}
+                onReply={(id, name) => setReplyTo({ id, name })}
+                onDeleted={handleDeleteComment}
+                onReport={(commentId) => handleReport(commentId)}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* 댓글 입력 */}
+        <div className="px-4 py-3 border-t border-gray-100 shrink-0">
+          {replyTo && (
+            <div className="flex items-center gap-2 mb-2 px-3 py-1.5 bg-orange-50 rounded-xl">
+              <span className="text-xs text-orange-600 flex-1">↩ {replyTo.name}에게 답글</span>
+              <button onClick={() => setReplyTo(null)} className="text-[10px] text-gray-400">취소</button>
+            </div>
+          )}
+          <div className="flex gap-2 items-end">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmitComment(); } }}
+              placeholder="댓글을 입력하세요..."
+              rows={1}
+              className="flex-1 px-4 py-2.5 rounded-2xl border border-gray-200 text-sm focus:outline-none focus:border-orange-400 resize-none"
+            />
+            <button
+              onClick={handleSubmitComment}
+              disabled={!input.trim() || submitting}
+              className="w-10 h-10 rounded-2xl flex items-center justify-center text-white disabled:opacity-40 shrink-0"
+              style={{ background: 'linear-gradient(135deg, #FB923C, #F97316)' }}
+            >
+              {submitting
+                ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                : '↑'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -47,7 +47,7 @@ export async function postMarking(
   },
   idToken: string,
 ) {
-  return request<{ newScore: number; isOccupied: boolean; rejectedReason?: string }>(
+  return request<{ tileId: string; newScore: number; isOccupied: boolean; rejectedReason?: string }>(
     '/api/marking',
     { method: 'POST', body: JSON.stringify(payload) },
     idToken,
@@ -110,6 +110,159 @@ export interface UserProfile {
   photoUrl: string | null;
   totalScore: number;
   tileCount: number;
+}
+
+// ─── 채팅 ────────────────────────────────────────────────
+
+export interface ChatMessage {
+  id: number;
+  conversationId: string;
+  senderId: string;
+  text: string;
+  createdAt: string;
+}
+
+export interface ConversationSummary {
+  id: string;
+  otherUserId: string;
+  otherDisplayName: string;
+  otherDogName: string;
+  otherDogBreed: string | null;
+  otherDogAge: string | null;
+  otherPhotoUrl: string | null;
+  lastMessage: string | null;
+  lastMessageAt: string | null;
+}
+
+export async function startConversation(otherUserId: string, idToken: string) {
+  return request<{ conversationId: string }>(
+    `/api/chat/with/${encodeURIComponent(otherUserId)}`,
+    { method: 'POST' },
+    idToken,
+  );
+}
+
+export async function getConversations(idToken: string) {
+  return request<ConversationSummary[]>('/api/chat', undefined, idToken);
+}
+
+export async function getConversationMessages(convId: string, idToken: string) {
+  return request<ChatMessage[]>(`/api/chat/${encodeURIComponent(convId)}/messages`, undefined, idToken);
+}
+
+export async function sendChatMessage(convId: string, text: string, idToken: string) {
+  return request<ChatMessage>(
+    `/api/chat/${encodeURIComponent(convId)}/messages`,
+    { method: 'POST', body: JSON.stringify({ text }) },
+    idToken,
+  );
+}
+
+// ─── 커뮤니티 ────────────────────────────────────────────────
+
+export type PostCategory = 'walk_log' | 'brag' | 'other';
+
+export interface PostImage {
+  id: string;
+  postId: string;
+  url: string;
+  orderIndex: number;
+}
+
+export interface Post {
+  id: string;
+  userId: string;
+  displayName: string;
+  photoUrl: string | null;
+  category: PostCategory;
+  title: string;
+  content: string;
+  images: PostImage[];
+  likeCount: number;
+  commentCount: number;
+  likedByMe: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Comment {
+  id: string;
+  postId: string;
+  parentId: string | null;
+  userId: string;
+  displayName: string;
+  photoUrl: string | null;
+  content: string;
+  depth: number;
+  replies: Comment[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function getPosts(category: PostCategory | 'all', page: number, idToken: string) {
+  return request<Post[]>(`/api/community/posts?category=${category}&page=${page}`, undefined, idToken);
+}
+
+export async function getPostDetail(postId: string, idToken: string) {
+  return request<Post>(`/api/community/posts/${postId}`, undefined, idToken);
+}
+
+export async function createPost(
+  data: { category: PostCategory; title: string; content: string; imageUrls: string[] },
+  idToken: string,
+) {
+  return request<Post>(
+    '/api/community/posts',
+    { method: 'POST', body: JSON.stringify(data) },
+    idToken,
+  );
+}
+
+export async function deletePost(postId: string, idToken: string) {
+  return request<null>(`/api/community/posts/${postId}`, { method: 'DELETE' }, idToken);
+}
+
+export async function toggleLike(postId: string, idToken: string) {
+  return request<{ liked: boolean; likeCount: number }>(
+    `/api/community/posts/${postId}/like`,
+    { method: 'POST' },
+    idToken,
+  );
+}
+
+export async function getComments(postId: string, idToken: string) {
+  return request<Comment[]>(`/api/community/posts/${postId}/comments`, undefined, idToken);
+}
+
+export async function createComment(
+  postId: string,
+  data: { parentId?: string; content: string },
+  idToken: string,
+) {
+  return request<Comment>(
+    `/api/community/posts/${postId}/comments`,
+    { method: 'POST', body: JSON.stringify(data) },
+    idToken,
+  );
+}
+
+export async function deleteComment(postId: string, commentId: string, idToken: string) {
+  return request<null>(
+    `/api/community/posts/${postId}/comments/${commentId}`,
+    { method: 'DELETE' },
+    idToken,
+  );
+}
+
+export async function reportContent(
+  data: { postId?: string; commentId?: string; reason?: string },
+  idToken: string,
+) {
+  return request<null>(
+    '/api/community/report',
+    { method: 'POST', body: JSON.stringify(data) },
+    idToken,
+  );
 }
 
 export interface LeaderboardEntry {

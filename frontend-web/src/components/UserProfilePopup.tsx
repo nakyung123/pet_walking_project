@@ -5,9 +5,10 @@ import { UserProfile } from '@/services/api';
 interface UserProfilePopupProps {
   profile: UserProfile;
   onClose: () => void;
+  onMessage?: (profile: UserProfile) => void;
 }
 
-export default function UserProfilePopup({ profile, onClose }: UserProfilePopupProps) {
+export default function UserProfilePopup({ profile, onClose, onMessage }: UserProfilePopupProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
@@ -51,18 +52,25 @@ export default function UserProfilePopup({ profile, onClose }: UserProfilePopupP
             <p className="text-xs text-gray-400 mt-0.5">{profile.displayName}의 반려견</p>
           </div>
 
-          {/* 견종 / 나이 / 성격 */}
-          <div className="w-full grid grid-cols-3 gap-2">
+          {/* 견종 / 나이 */}
+          <div className="w-full grid grid-cols-2 gap-2">
             {[
               { label: '견종', value: profile.dogBreed ?? '미등록' },
               { label: '나이', value: profile.dogAge ?? '미등록' },
-              { label: '성격', value: profile.dogPersonality ?? '미등록' },
             ].map(({ label, value }) => (
               <div key={label} className="bg-gray-50 rounded-2xl px-2 py-3 text-center">
                 <p className="text-[10px] text-gray-400">{label}</p>
-                <p className="text-xs font-bold text-gray-800 mt-0.5 truncate">{value}</p>
+                <p className="text-xs font-bold text-gray-800 mt-0.5">{value}</p>
               </div>
             ))}
+          </div>
+
+          {/* 성격 */}
+          <div className="w-full bg-gray-50 rounded-2xl px-3 py-3 text-center">
+            <p className="text-[10px] text-gray-400">성격</p>
+            <p className="text-xs font-bold text-gray-800 mt-0.5 break-keep leading-relaxed">
+              {profile.dogPersonality ?? '미등록'}
+            </p>
           </div>
 
           {/* 점수 / 영역 */}
@@ -80,6 +88,17 @@ export default function UserProfilePopup({ profile, onClose }: UserProfilePopupP
               </p>
             </div>
           </div>
+
+          {/* 메시지 보내기 버튼 */}
+          {onMessage && (
+            <button
+              onClick={() => { onClose(); onMessage(profile); }}
+              className="w-full py-3 rounded-2xl text-sm font-bold text-white"
+              style={{ background: 'linear-gradient(135deg, #FB923C, #F97316)' }}
+            >
+              💬 메시지 보내기
+            </button>
+          )}
         </div>
       </div>
     </div>

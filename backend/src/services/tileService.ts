@@ -17,8 +17,9 @@ export const getTilesByViewport = async (
     center_lng: number;
     occupant_user_id: string | null;
     occupancy_score: number;
+    last_marked_at: string | null;
   }>(
-    `SELECT tile_id, center_lat, center_lng, occupant_user_id, occupancy_score
+    `SELECT tile_id, center_lat, center_lng, occupant_user_id, occupancy_score, last_marked_at
      FROM tiles
      WHERE ST_Within(
        ST_SetSRID(ST_MakePoint(center_lng, center_lat), 4326),
@@ -34,6 +35,7 @@ export const getTilesByViewport = async (
     lng: row.center_lng,
     occupantUserId: row.occupant_user_id,
     occupancyScore: row.occupancy_score,
+    lastMarkedAt: row.last_marked_at ?? null,
   }));
 };
 
@@ -63,8 +65,9 @@ export const getAllOccupiedTiles = async (): Promise<import('../types').Tile[]> 
     center_lng: number;
     occupant_user_id: string;
     occupancy_score: number;
+    last_marked_at: string | null;
   }>(
-    `SELECT tile_id, center_lat, center_lng, occupant_user_id, occupancy_score
+    `SELECT tile_id, center_lat, center_lng, occupant_user_id, occupancy_score, last_marked_at
      FROM tiles
      WHERE occupant_user_id IS NOT NULL`
   );
@@ -75,5 +78,6 @@ export const getAllOccupiedTiles = async (): Promise<import('../types').Tile[]> 
     lng: row.center_lng,
     occupantUserId: row.occupant_user_id,
     occupancyScore: row.occupancy_score,
+    lastMarkedAt: row.last_marked_at ?? null,
   }));
 };

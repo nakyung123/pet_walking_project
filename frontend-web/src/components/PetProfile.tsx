@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { updateMyProfile } from '@/services/api';
 import WalkSummaryModal from '@/components/WalkSummaryModal';
 import type { WalkSummaryData } from '@/components/WalkSummaryModal';
@@ -93,19 +94,19 @@ function WalkCalendarModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-5 pt-5 pb-3">
+      <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl flex flex-col">
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
           <p className="text-base font-bold text-gray-900">산책일지</p>
           <button onClick={onClose} className="w-7 h-7 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-sm">✕</button>
         </div>
 
-        <div className="flex items-center justify-between px-5 pb-3">
+        <div className="flex items-center justify-between px-5 pb-3 shrink-0">
           <button onClick={prevMonth} className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-600 text-sm">◀</button>
           <span className="text-sm font-bold text-gray-800">{year}년 {month + 1}월</span>
           <button onClick={nextMonth} className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-600 text-sm">▶</button>
         </div>
 
-        <div className="grid grid-cols-7 px-3 pb-1">
+        <div className="grid grid-cols-7 px-3 pb-1 shrink-0">
           {WEEK_DAYS.map((d, i) => (
             <div key={d} className={`text-center text-xs font-semibold py-1 ${i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-gray-400'}`}>
               {d}
@@ -113,7 +114,7 @@ function WalkCalendarModal({ onClose }: { onClose: () => void }) {
           ))}
         </div>
 
-        <div className="grid grid-cols-7 px-3 pb-5 gap-y-0.5">
+        <div className="grid grid-cols-7 px-3 pb-8 gap-y-2">
           {cells.map((d, i) => {
             if (d === null) return <div key={`e-${i}`} />;
             const summary = getDaySummary(d);
@@ -123,7 +124,7 @@ function WalkCalendarModal({ onClose }: { onClose: () => void }) {
                 key={d}
                 onClick={() => { if (summary) setSelectedLog(summary.merged); }}
                 disabled={!hasWalk}
-                className={`flex flex-col items-center py-1 rounded-xl transition-colors ${hasWalk ? 'hover:bg-orange-50' : ''}`}
+                className={`flex flex-col items-center py-1.5 rounded-xl transition-colors ${hasWalk ? 'hover:bg-orange-50' : ''}`}
               >
                 <span className={`text-xs font-semibold ${hasWalk ? 'text-orange-500' : 'text-gray-700'}`}>{d}</span>
                 {hasWalk && (
@@ -663,8 +664,8 @@ export default function PetProfile({
         </button>
       </div>
 
-      {showWalkLog && <WalkCalendarModal onClose={() => setShowWalkLog(false)} />}
-      {showPoints && <PointHistoryModal onClose={() => setShowPoints(false)} />}
+      {showWalkLog && createPortal(<WalkCalendarModal onClose={() => setShowWalkLog(false)} />, document.body)}
+      {showPoints && createPortal(<PointHistoryModal onClose={() => setShowPoints(false)} />, document.body)}
     </div>
   );
 }
