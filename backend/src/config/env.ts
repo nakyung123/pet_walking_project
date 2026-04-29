@@ -4,11 +4,6 @@
  */
 
 const REQUIRED_VARS = [
-  'DB_HOST',
-  'DB_PORT',
-  'DB_NAME',
-  'DB_USER',
-  'DB_PASSWORD',
   'FIREBASE_PROJECT_ID',
   'FIREBASE_PRIVATE_KEY',
   'FIREBASE_CLIENT_EMAIL',
@@ -17,6 +12,12 @@ const REQUIRED_VARS = [
 const OPTIONAL_VARS = [
   'PORT',
   'NODE_ENV',
+  'DATABASE_URL',
+  'DB_HOST',
+  'DB_PORT',
+  'DB_NAME',
+  'DB_USER',
+  'DB_PASSWORD',
   'FIREBASE_STORAGE_BUCKET',
 ] as const;
 
