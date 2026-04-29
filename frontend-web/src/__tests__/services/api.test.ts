@@ -68,22 +68,22 @@ describe('postMarking', () => {
 });
 
 describe('startSession', () => {
-  it('userId를 body에 담아 세션을 시작한다', async () => {
+  it('idToken만으로 세션을 시작한다 (userId는 서버에서 토큰으로 추출)', async () => {
     mockFetch({ sessionId: 'sess-123' });
-    await startSession('user-abc', MOCK_TOKEN);
+    await startSession(MOCK_TOKEN);
 
     const [url, options] = (global.fetch as jest.Mock).mock.calls[0];
     expect(url).toContain('/api/sessions');
-    expect(JSON.parse(options.body)).toEqual({ userId: 'user-abc' });
+    expect(options.method).toBe('POST');
   });
 });
 
 describe('getScore', () => {
-  it('올바른 userId 경로로 점수를 조회한다', async () => {
+  it('/api/users/me/score 경로로 점수를 조회한다', async () => {
     mockFetch({ totalScore: 500 });
-    await getScore('user-abc', MOCK_TOKEN);
+    await getScore(MOCK_TOKEN);
 
     const url = (global.fetch as jest.Mock).mock.calls[0][0] as string;
-    expect(url).toContain('/api/users/user-abc/score');
+    expect(url).toContain('/api/users/me/score');
   });
 });

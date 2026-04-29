@@ -2,68 +2,25 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { getLeaderboard, getUserProfile, LeaderboardEntry, LeaderboardData, UserProfile } from '@/services/api';
+import { getLeaderboard, getNearbyLeaderboard, getUserProfile, LeaderboardEntry, LeaderboardData, UserProfile } from '@/services/api';
 import UserProfilePopup from '@/components/UserProfilePopup';
 
 interface LeaderboardProps {
   idToken: string;
   currentUserId: string;
+  currentLat?: number;
+  currentLng?: number;
+  /** true로 전달하면 컴포넌트 마운트 시 전체보기 모달이 바로 열림 */
+  initialOpen?: boolean;
+  onClose?: () => void;
 }
 
 const RANK_KO = ['1위', '2위', '3위'];
 const sanitizeName = (name: string) =>
   name.replace(/[^\p{L}\p{N}\s]/gu, '').trim() || '알 수 없음';
 
-function getGapText(myEntry: LeaderboardEntry, list: LeaderboardEntry[], tab: Tab): string {
-  const { rank } = myEntry;
-  if (rank === 1) return '1위 달성! 👑';
-  const targetRank = rank > 10 ? 10 : 1;
-  const target = list.find((e) => e.rank === targetRank);
-  if (!target) return '';
-  const diff = (tab === 'score' ? target.totalScore - myEntry.totalScore : target.tileCount - myEntry.tileCount);
-  const unit = tab === 'score' ? '점' : '개';
-  return `${targetRank}위까지 ${diff.toLocaleString()}${unit} 남음`;
-}
-
-function MyRankCard({ myEntry, list, tab, total, compact = false }: {
-  myEntry: LeaderboardEntry | null;
-  list: LeaderboardEntry[];
-  tab: Tab;
-  total: number;
-  compact?: boolean;
-}) {
-  if (!myEntry) {
-    return (
-      <div className={`mx-4 ${compact ? 'mb-2' : 'mb-3'} rounded-2xl bg-gray-100 px-4 py-3`}>
-        <p className="text-xs text-gray-400 font-medium">아직 순위가 없어요</p>
-        <p className="text-sm font-bold text-gray-600 mt-0.5">첫 마킹을 해보세요! 🐾</p>
-      </div>
-    );
-  }
-  const topPercent = Math.ceil((myEntry.rank / total) * 100);
-  const gapText = getGapText(myEntry, list, tab);
-  return (
-    <div
-      className={`mx-4 ${compact ? 'mb-2' : 'mb-3'} rounded-2xl overflow-hidden`}
-      style={{ background: 'linear-gradient(135deg, #FB923C, #F97316)' }}
-    >
-      <div className="px-4 py-3 flex items-center justify-between">
-        <div>
-          <p className="text-[11px] text-white/70 font-medium">내 순위</p>
-          <p className="text-3xl font-black text-white leading-tight">{myEntry.rank}위</p>
-        </div>
-        <div className="text-right">
-          <div className="inline-flex items-center bg-white/20 rounded-full px-2.5 py-1 mb-1.5">
-            <span className="text-xs font-bold text-white">상위 {topPercent}%</span>
-          </div>
-          {gapText && <p className="text-[11px] text-white/80">{gapText}</p>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 type Tab = 'score' | 'tile';
+type Scope = 'nearby' | 'global';
 
 function Avatar({ userId, name, size = 44 }: { userId: string; name: string; size?: number }) {
   return (
@@ -121,30 +78,40 @@ function EntryRow({
   );
 }
 
-export default function Leaderboard({ idToken, currentUserId }: LeaderboardProps) {
-  const [data, setData]             = useState<LeaderboardData | null>(null);
-  const [loading, setLoading]       = useState(true);
-  const [open, setOpen]             = useState(false);
-  const [tab, setTab]               = useState<Tab>('score');
+export default function Leaderboard({
+  idToken, currentUserId, currentLat, currentLng,
+  initialOpen = false, onClose,
+}: LeaderboardProps) {
+  const [open, setOpen]               = useState(initialOpen);
+  const [tab, setTab]                 = useState<Tab>('score');
+  const [scope, setScope]             = useState<Scope>('nearby');
+  const [data, setData]               = useState<LeaderboardData | null>(null);
+  const [loading, setLoading]         = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<UserProfile | null>(null);
   const [profileLoading, setProfileLoading]   = useState(false);
 
-  const fetchLeaderboard = useCallback(async () => {
+  const fetchData = useCallback(async (s: Scope) => {
+    setLoading(true);
     try {
-      const res = await getLeaderboard(idToken);
+      const res = s === 'nearby' && currentLat != null && currentLng != null
+        ? await getNearbyLeaderboard(currentLat, currentLng, idToken)
+        : await getLeaderboard(idToken);
       if (res.success && res.data) setData(res.data);
     } catch (e) {
       console.error('[Leaderboard]', e);
     } finally {
       setLoading(false);
     }
-  }, [idToken]);
+  }, [idToken, currentLat, currentLng]);
 
   useEffect(() => {
-    fetchLeaderboard();
-    const id = setInterval(fetchLeaderboard, 30_000);
-    return () => clearInterval(id);
-  }, [fetchLeaderboard]);
+    if (open) fetchData(scope);
+  }, [open, scope, fetchData]);
+
+  const handleClose = () => {
+    setOpen(false);
+    onClose?.();
+  };
 
   const handleEntryClick = useCallback(async (userId: string) => {
     if (profileLoading) return;
@@ -159,100 +126,43 @@ export default function Leaderboard({ idToken, currentUserId }: LeaderboardProps
     }
   }, [idToken, profileLoading]);
 
-  const list      = data ? (tab === 'score' ? data.byScore : data.byTile) : [];
-  const preview   = list.slice(0, 3);
-  const myEntry   = list.find((e) => e.userId === currentUserId) ?? null;
+  const list = data ? (tab === 'score' ? data.byScore : data.byTile) : [];
 
   return (
     <>
-      {/* 패널 (위치·높이는 부모 컨테이너가 담당) */}
-      <div className="w-full h-full bg-white/95 backdrop-blur-md rounded-2xl shadow-xl flex flex-col overflow-hidden">
-        {/* 헤더 */}
-        <div className="px-4 pt-4 pb-2 flex items-center justify-between shrink-0">
-          <span className="text-base font-bold text-gray-900">랭킹</span>
-          <button
-            onClick={() => setOpen(true)}
-            className="text-xs text-orange-500 font-semibold hover:text-orange-600 transition-colors"
-          >
-            전체보기 ↑
-          </button>
-        </div>
-
-        {/* 내 순위 카드 */}
-        {!loading && (
-          <MyRankCard myEntry={myEntry} list={list} tab={tab} total={list.length} />
-        )}
-
-        {/* 탭 */}
-        <div className="flex gap-1.5 px-4 pb-3 shrink-0">
-          {(['score', 'tile'] as Tab[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`flex-1 text-xs font-bold py-1.5 rounded-xl transition-colors ${
-                tab === t
-                  ? 'bg-orange-400 text-white'
-                  : 'bg-gray-100 text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {t === 'score' ? '점수' : '타일 수'}
-            </button>
-          ))}
-        </div>
-
-        {/* 목록 (남은 공간을 채우고 스크롤) */}
-        <ul className="flex-1 min-h-0 overflow-y-auto scrollbar-hide px-4 pb-4 space-y-1">
-          {loading ? (
-            <li className="flex justify-center py-5">
-              <div className="w-5 h-5 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
-            </li>
-          ) : preview.length === 0 ? (
-            <li className="text-gray-400 text-xs text-center py-5">데이터 없음</li>
-          ) : (
-            preview.map((e) => (
-              <EntryRow
-                key={e.userId}
-                entry={e}
-                isMe={e.userId === currentUserId}
-                tab={tab}
-                onClick={() => handleEntryClick(e.userId)}
-              />
-            ))
-          )}
-        </ul>
-      </div>
-
-      {/* 프로필 팝업 */}
-      {selectedProfile && createPortal(
-        <UserProfilePopup profile={selectedProfile} onClose={() => setSelectedProfile(null)} />,
-        document.body,
-      )}
-
-      {/* 프로필 로딩 오버레이 */}
-      {profileLoading && createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="w-10 h-10 border-4 border-white border-t-transparent rounded-full animate-spin" />
-        </div>,
-        document.body,
-      )}
-
-      {/* 전체 보기 모달 */}
+      {/* 모달 */}
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
+          <div className="absolute inset-0 bg-black/50" onClick={handleClose} />
           <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl flex flex-col max-h-[75vh]">
             <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
-              <h2 className="text-base font-bold text-gray-900">🏆 전체 랭킹</h2>
+              <h2 className="text-base font-bold text-gray-900">랭킹</h2>
               <button
-                onClick={() => setOpen(false)}
+                onClick={handleClose}
                 className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:text-gray-800 transition-colors"
               >
                 ✕
               </button>
             </div>
-            {/* 모달 내 내 순위 카드 */}
-            <MyRankCard myEntry={myEntry} list={list} tab={tab} total={list.length} compact />
 
+            {/* 내 주변 / 전체 탭 */}
+            <div className="flex gap-1.5 px-4 pt-3 pb-1">
+              {(['nearby', 'global'] as Scope[]).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setScope(s)}
+                  className={`flex-1 text-xs font-bold py-1.5 rounded-xl transition-colors ${
+                    scope === s
+                      ? 'bg-gray-800 text-white'
+                      : 'bg-gray-100 text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {s === 'nearby' ? '내 주변' : '전체'}
+                </button>
+              ))}
+            </div>
+
+            {/* 점수 / 타일 수 탭 */}
             <div className="flex gap-1 px-4 pt-2 pb-2">
               {(['score', 'tile'] as Tab[]).map((t) => (
                 <button
@@ -268,9 +178,16 @@ export default function Leaderboard({ idToken, currentUserId }: LeaderboardProps
                 </button>
               ))}
             </div>
+
             <ul className="overflow-y-auto scrollbar-hide px-4 pb-5 space-y-1">
-              {list.length === 0 ? (
-                <li className="text-gray-400 text-center py-10 text-sm">아직 데이터가 없습니다.</li>
+              {loading ? (
+                <li className="flex justify-center py-10">
+                  <div className="w-6 h-6 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
+                </li>
+              ) : list.length === 0 ? (
+                <li className="text-gray-400 text-center py-10 text-sm">
+                  {scope === 'nearby' ? '주변 3km 내 활동 유저가 없어요' : '아직 데이터가 없습니다.'}
+                </li>
               ) : (
                 list.map((e) => (
                   <EntryRow
@@ -285,6 +202,19 @@ export default function Leaderboard({ idToken, currentUserId }: LeaderboardProps
             </ul>
           </div>
         </div>
+      )}
+
+      {/* 프로필 팝업 */}
+      {selectedProfile && createPortal(
+        <UserProfilePopup profile={selectedProfile} onClose={() => setSelectedProfile(null)} />,
+        document.body,
+      )}
+
+      {profileLoading && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+          <div className="w-10 h-10 border-4 border-white border-t-transparent rounded-full animate-spin" />
+        </div>,
+        document.body,
       )}
     </>
   );

@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
+import logger from '../utils/logger';
 
 dotenv.config();
 
@@ -12,11 +13,11 @@ const pool = new Pool({
 });
 
 pool.on('connect', () => {
-  console.log('[DB] PostgreSQL 연결 성공');
+  logger.info('[DB] PostgreSQL 연결 성공');
 });
 
 pool.on('error', (err) => {
-  console.error('[DB] 예상치 못한 오류 발생:', err.message);
+  logger.error('[DB] 예상치 못한 오류 발생: %s', err.message);
 });
 
 export default pool;

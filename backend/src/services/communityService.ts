@@ -1,5 +1,6 @@
 import pool from '../db/pool';
 import { Post, Comment, CreatePostInput, CreateCommentInput, PostCategory } from '../types';
+import { uploadBase64Image } from './storageService';
 
 const POST_LIMIT = 20;
 
@@ -80,13 +81,13 @@ export async function createPost(userId: string, input: CreatePostInput): Promis
     );
     const post = rows[0];
 
-    if (input.imageUrls.length > 0) {
-      const imgValues = input.imageUrls
-        .slice(0, 3)
-        .map((url, i) => `('${post.id}', '${url}', ${i})`)
-        .join(', ');
+    for (let i = 0; i < Math.min(input.imageUrls.length, 3); i++) {
+      const url = input.imageUrls[i].startsWith('data:')
+        ? await uploadBase64Image(input.imageUrls[i])
+        : input.imageUrls[i];
       await client.query(
-        `INSERT INTO post_images (post_id, url, order_index) VALUES ${imgValues}`,
+        `INSERT INTO post_images (post_id, url, order_index) VALUES ($1, $2, $3)`,
+        [post.id, url, i],
       );
     }
 

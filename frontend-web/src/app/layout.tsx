@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Noto_Sans_KR } from 'next/font/google';
+import Script from 'next/script';
 import './globals.css';
 
 const notoSansKR = Noto_Sans_KR({
@@ -10,13 +11,13 @@ const notoSansKR = Noto_Sans_KR({
 });
 
 export const metadata: Metadata = {
-  title: '펫국지',
+  title: '퍼피랜드',
   description: '반려견과 함께 동네를 점령하세요',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: '펫국지',
+    title: '퍼피랜드',
   },
 };
 
@@ -37,6 +38,10 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icon-192.png" />
       </head>
       <body className={`h-full ${notoSansKR.variable}`}>{children}</body>
+      <Script
+        src="https://unpkg.com/@lottiefiles/lottie-player@2/dist/lottie-player.js"
+        strategy="afterInteractive"
+      />
     </html>
   );
 }

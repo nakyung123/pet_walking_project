@@ -2,8 +2,10 @@ import { Request, Response, NextFunction } from 'express';
 import admin from '../firebase';
 import { ApiResponse } from '../types';
 
-const DEV_MODE = !process.env.FIREBASE_PROJECT_ID;
-const DEV_UID = 'dev-user-001'; // 개발 모드 고정 uid
+export type AuthRequest = Request & { uid: string };
+
+const DEV_MODE = process.env.NODE_ENV === 'development' && !process.env.FIREBASE_PROJECT_ID;
+const DEV_UID = 'dev-user-001';
 
 export const authMiddleware = async (
   req: Request,

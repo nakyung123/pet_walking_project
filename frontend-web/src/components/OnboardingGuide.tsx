@@ -2,23 +2,33 @@
 
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import type { HintItem } from '@/components/ActionHint';
+
+const HINT_STYLE: Record<HintItem['variant'], string> = {
+  default: 'bg-white/95 border border-gray-200/80 text-gray-800',
+  warning: 'bg-red-50 border border-red-200 text-red-700',
+  gold:    'bg-amber-50 border border-amber-200 text-amber-800',
+};
 
 const CORE_RULES = [
-  { step: '01', icon: '🐾', title: '산책 시작 & 마킹', desc: '"산책 시작" 후 현재 위치에서 "마킹"을 눌러 점수를 쌓으세요.' },
-  { step: '02', icon: '🏆', title: '점유 & 경쟁', desc: '가장 많이 마킹한 사람이 타일 소유. 빼앗길 수 있어요!' },
-  { step: '03', icon: '🚗', title: '속도 제한', desc: '15km/h 초과 시 마킹 자동 차단. 반드시 걸어서 마킹하세요.' },
+  { step: '01', icon: '🦮', title: '산책 시작 & 마킹', desc: '"산책 시작하기"를 누른 뒤 현재 위치에서 "마킹하기"를 눌러 타일을 점유하세요. 타일을 많이 모을수록 랭킹이 올라갑니다.' },
+  { step: '02', icon: '🏆', title: '점유 & 경쟁', desc: '마킹 점수가 가장 높은 사람이 그 타일의 주인. 빼앗기면 알림이 와요!' },
+  { step: '03', icon: '🚗', title: '속도 제한', desc: '15km/h 초과 시 마킹 자동 차단. 뛰거나 차를 타면 안 돼요.' },
 ];
 
 const ALL_RULES = [
-  { icon: '🗺️', title: '타일이란?', desc: '지도를 약 50m × 50m 격자로 나눈 구역입니다. 각 타일은 한 명의 플레이어만 점유할 수 있어요.' },
-  { icon: '🐾', title: '산책 시작 & 마킹', desc: '"산책 시작하기" 버튼을 누른 뒤, 현재 위치 타일에서 "마킹하기"를 눌러 점수를 쌓으세요. 점수가 가장 높은 플레이어가 그 타일을 점유합니다.' },
-  { icon: '🏆', title: '점유 & 경쟁', desc: '내 타일은 주황색, 경쟁자 타일은 다른 색으로 표시됩니다. 누군가 더 많이 마킹하면 점유권을 빼앗길 수 있어요.' },
-  { icon: '⏳', title: '감쇄', desc: '산책을 쉬면 점유 점수가 매일 조금씩 줄어듭니다. 꾸준히 산책해야 영역을 지킬 수 있어요.' },
-  { icon: '🚗', title: '속도 제한', desc: '이동 속도가 15km/h를 넘으면 마킹이 자동으로 차단됩니다. 반드시 걸어서 마킹하세요!' },
-  { icon: '📍', title: '타일 프리뷰', desc: '내 위치에서 마킹 시 점유될 타일이 지도에 미리 노란색으로 표시됩니다. 확인하고 마킹하세요.' },
+  { icon: '🗺️', title: '타일이란?', desc: '지도를 50m × 50m 격자로 나눈 구역이에요. 각 타일은 한 명만 점유할 수 있고, 타일 색이 곧 주인의 색입니다.' },
+  { icon: '🦮', title: '산책 시작 & 마킹', desc: '"산책 시작하기"를 눌러 세션을 시작하세요. 현재 위치의 타일에서 "마킹하기"를 누르면 체류시간 + 마킹 보너스로 점수가 쌓입니다.' },
+  { icon: '🏆', title: '점유 & 경쟁', desc: '내 타일은 주황색, 경쟁자 타일은 다른 색으로 표시됩니다. 상대방이 더 많이 마킹하면 타일을 빼앗겨요. 타일을 클릭하면 누가 점유 중인지 확인할 수 있어요.' },
+  { icon: '⏳', title: '감쇄 시스템', desc: '24시간 동안 마킹이 없으면 매일 자정에 점수가 10%씩 줄어듭니다. 점수가 0이 되면 점유가 해제돼요. 꾸준히 산책하세요!' },
+  { icon: '🚗', title: '속도 제한', desc: '이동 속도가 15km/h를 넘으면 마킹이 자동 차단됩니다. 뛰거나 탈것을 타면 적용되지 않아요.' },
+  { icon: '📍', title: '타일 프리뷰', desc: '산책 중 내 위치의 타일이 지도에 노란색 점선으로 미리 표시됩니다. 마킹 전 어느 타일인지 확인하세요.' },
+  { icon: '📊', title: '랭킹', desc: '하단 메뉴에서 전체 랭킹과 내 주변 3km 랭킹을 확인할 수 있어요. 타일 수와 총점 두 가지 기준으로 순위가 집계됩니다.' },
+  { icon: '💬', title: '커뮤니티 & 채팅', desc: '하단 커뮤니티 탭에서 산책일지·자랑 게시글을 올리고 댓글을 달 수 있어요. 다른 견주의 프로필을 누르면 1:1 채팅도 가능합니다.' },
+  { icon: '🔔', title: '알림', desc: '타일 빼앗김, 게시글 댓글·좋아요, 새 메시지, 감쇄 경고 알림을 받아요. 상단 종 아이콘에서 확인하세요.' },
 ];
 
-export default function OnboardingGuide() {
+export default function OnboardingGuide({ hints = [] }: { hints?: HintItem[] }) {
   const [expanded, setExpanded] = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -43,7 +53,7 @@ export default function OnboardingGuide() {
               className="h-20 flex flex-col items-center justify-center"
               style={{ background: 'linear-gradient(135deg, #FB923C, #F97316)' }}
             >
-              <p className="text-white font-bold text-lg">🐕 펫국지 환영해요!</p>
+              <p className="text-white font-bold text-lg">🐕 퍼피랜드 환영해요!</p>
               <p className="text-white/80 text-xs mt-1">핵심 규칙 3가지만 알면 시작할 수 있어요</p>
             </div>
 
@@ -65,7 +75,7 @@ export default function OnboardingGuide() {
                 className="w-full mt-2 h-11 rounded-full text-sm font-bold text-white active:scale-95 transition-transform"
                 style={{ background: 'linear-gradient(135deg, #FB923C, #F97316)' }}
               >
-                시작하기 🐾
+                시작하기
               </button>
               <button
                 onClick={() => { setShowOverlay(false); setExpanded(true); }}
@@ -79,41 +89,63 @@ export default function OnboardingGuide() {
         document.body,
       )}
 
-      {/* 접힌 상태 카드 */}
+      {/* 접힌 상태 카드 + 힌트 */}
       {!expanded && (
-        <button
-          onClick={() => setExpanded(true)}
-          className="absolute top-[116px] left-3 z-20 flex items-center gap-2 bg-white/92 backdrop-blur-md rounded-2xl shadow-lg px-4 py-3 hover:bg-white transition-colors active:scale-95"
-        >
-          <span className="text-base">🐕</span>
-          <span className="text-sm font-bold text-gray-800">이용 가이드</span>
-          <span className="text-xs text-gray-400 border border-gray-300 rounded-full w-4 h-4 flex items-center justify-center leading-none">?</span>
-        </button>
+        <div className="absolute top-[116px] left-3 z-20 flex flex-col gap-2 items-start">
+          <button
+            onClick={() => setExpanded(true)}
+            className="flex items-center gap-2 bg-white/92 backdrop-blur-md rounded-2xl shadow-lg px-4 py-3 hover:bg-white transition-colors active:scale-95"
+          >
+            <span className="text-base">🐕</span>
+            <span className="text-sm font-bold text-gray-800">이용 가이드</span>
+            <span className="text-xs text-gray-400 border border-gray-300 rounded-full w-4 h-4 flex items-center justify-center leading-none">?</span>
+          </button>
+          {hints.map((hint, i) => (
+            <div
+              key={i}
+              className={`flex items-center gap-1.5 rounded-2xl px-3 py-2 shadow-sm backdrop-blur-sm ${HINT_STYLE[hint.variant]}`}
+            >
+              <span className="text-sm leading-none">{hint.icon}</span>
+              <span className="text-xs font-semibold whitespace-nowrap">{hint.text}</span>
+            </div>
+          ))}
+        </div>
       )}
 
-      {/* 펼친 상태 패널 */}
+      {/* 펼친 상태 패널 + 힌트 */}
       {expanded && (
-        <div className="absolute top-[116px] left-3 z-20 w-72 bg-white/92 backdrop-blur-md rounded-2xl shadow-lg overflow-hidden">
-          <div className="px-4 pt-3.5 pb-2.5 border-b border-gray-100 flex items-center justify-between">
-            <p className="text-sm font-bold text-gray-800">🐕 펫국지 이용 가이드</p>
-            <button
-              onClick={() => setExpanded(false)}
-              className="w-6 h-6 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:text-gray-800 transition-colors text-xs"
-            >
-              ✕
-            </button>
+        <div className="absolute top-[116px] left-3 z-20 flex flex-col gap-2 items-start">
+          <div className="w-72 bg-white/92 backdrop-blur-md rounded-2xl shadow-lg overflow-hidden">
+            <div className="px-4 pt-3.5 pb-2.5 border-b border-gray-100 flex items-center justify-between">
+              <p className="text-sm font-bold text-gray-800">🐕 퍼피랜드 이용 가이드</p>
+              <button
+                onClick={() => setExpanded(false)}
+                className="w-6 h-6 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:text-gray-800 transition-colors text-xs"
+              >
+                ✕
+              </button>
+            </div>
+            <ul className="px-4 py-3.5 space-y-4">
+              {ALL_RULES.map((rule, i) => (
+                <li key={i} className="flex gap-3">
+                  <span className="text-lg shrink-0 mt-0.5">{rule.icon}</span>
+                  <div>
+                    <p className="text-xs font-bold text-gray-800">{rule.title}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{rule.desc}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
-          <ul className="px-4 py-3.5 space-y-4 max-h-[480px] overflow-y-auto scrollbar-hide">
-            {ALL_RULES.map((rule, i) => (
-              <li key={i} className="flex gap-3">
-                <span className="text-lg shrink-0 mt-0.5">{rule.icon}</span>
-                <div>
-                  <p className="text-xs font-bold text-gray-800">{rule.title}</p>
-                  <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{rule.desc}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
+          {hints.map((hint, i) => (
+            <div
+              key={i}
+              className={`flex items-center gap-1.5 rounded-2xl px-3 py-2 shadow-sm backdrop-blur-sm ${HINT_STYLE[hint.variant]}`}
+            >
+              <span className="text-sm leading-none">{hint.icon}</span>
+              <span className="text-xs font-semibold whitespace-nowrap">{hint.text}</span>
+            </div>
+          ))}
         </div>
       )}
     </>

@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { onIdTokenChanged } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import { useGPS } from '@/hooks/useGPS';
 import { useSocket, TileUpdatedPayload } from '@/hooks/useSocket';
-import { getTiles, postMarking, startSession, getScore, getOccupiedTiles, getLeaderboard, deleteTile, getUserProfile, UserProfile, LeaderboardEntry } from '@/services/api';
+import { getTiles, postMarking, startSession, endSession, getScore, getOccupiedTiles, getLeaderboard, deleteTile, getUserProfile, UserProfile, LeaderboardEntry } from '@/services/api';
 import NaverMap, { Tile } from '@/components/NaverMap';
 import MarkingButton from '@/components/MarkingButton';
 import ScorePanel from '@/components/ScorePanel';
@@ -19,7 +21,8 @@ import ChatList from '@/components/ChatList';
 import CommunityPanel from '@/components/CommunityPanel';
 import { ChatUser } from '@/components/ChatRoom';
 import TileInfoCard from '@/components/TileInfoCard';
-import ActionHint, { HintItem } from '@/components/ActionHint';
+import { WalkCalendarModal } from '@/components/PetProfile';
+import LocationPermissionPrompt from '@/components/LocationPermissionPrompt';
 
 type Bounds = { minLat: number; maxLat: number; minLng: number; maxLng: number };
 type TileFilter = 'all' | 'mine' | 'rivals';
@@ -81,8 +84,9 @@ export default function MapPage() {
   const [walkDistance, setWalkDistance] = useState(0);
   const [walkSummary, setWalkSummary] = useState<WalkSummaryData | null>(null);
 
-  // 다른 유저 프로필 팝업
+  // 다른 유저 프로필 팝업 + 선택된 상대 유저 영역 표시
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [visibleRivalUserId, setVisibleRivalUserId] = useState<string | null>(null);
 
   // 채팅
   const [showChatList, setShowChatList] = useState(false);
@@ -96,10 +100,23 @@ export default function MapPage() {
   const handleTileClick = useCallback((tile: Tile | null, lat: number, lng: number) => {
     setSelectedTile(tile);
     setSelectedTileLatLng({ lat, lng });
+    setVisibleRivalUserId(null);
   }, []);
+
+  // 모달 상태
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsView, setSettingsView] = useState<'main' | 'notifications' | 'terms' | 'withdraw'>('main');
+  const [notifSettings, setNotifSettings] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('notifSettings') || '{}'); } catch { return {}; }
+  });
+  const [withdrawStep, setWithdrawStep] = useState(0);
+  const [showWalkLog, setShowWalkLog] = useState(false);
 
   // 좌측 아이콘 상태
   const [missionState, setMissionState] = useState<'hidden' | 'popup' | 'banner'>('hidden');
+  const [hasSeenMission, setHasSeenMission] = useState(false);
   const [showDogList, setShowDogList] = useState(false);
   const [flyTo, setFlyTo] = useState<{ lat: number; lng: number; zoom: number } | null>(null);
   const [activePetIdx, setActivePetIdx] = useState(0);
@@ -117,18 +134,21 @@ export default function MapPage() {
   const [tileFilter, setTileFilter] = useState<TileFilter>('all');
 
 
-  // 토스트 메시지
-  const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
+  // 토스트 메시지 (key로 매번 재마운트하여 타이머 리셋)
+  const [toast, setToast] = useState<{ message: string; type: ToastType; key: number } | null>(null);
+  const toastKeyRef = useRef(0);
   const showToast = useCallback((message: string, type: ToastType) => {
-    setToast({ message, type });
+    setToast({ message, type, key: ++toastKeyRef.current });
   }, []);
 
   // idToken
   const [idToken, setIdToken] = useState<string | null>(null);
+  const idTokenRef = useRef<string | null>(null);
 
   // 강아지 목록 로드 (localStorage)
   useEffect(() => {
     try {
+      localStorage.removeItem('manualPosition');
       const saved = localStorage.getItem('petProfiles');
       const idx = localStorage.getItem('activePetIdx');
       if (saved) setPetList(JSON.parse(saved));
@@ -136,69 +156,47 @@ export default function MapPage() {
     } catch {}
   }, []);
 
-  // 테스트용 산책 데이터 시딩 (4월 22일 데이터가 없을 때만 삽입)
-  useEffect(() => {
+
+  // 로그인 후 위치 권한 안내 화면 (세션마다 1회, 새로고침 시 재표시 안 함)
+  const [showLocationPrompt, setShowLocationPrompt] = useState(() => {
     try {
-      const existing: { date: string }[] = JSON.parse(localStorage.getItem('walkLogs') || '[]');
-      const alreadySeeded = existing.some(l => l.date === '2026-04-22');
-      if (!alreadySeeded) {
-        const testLog = {
-          date: '2026-04-22',
-          savedAt: new Date('2026-04-22T10:30:00').getTime(),
-          seconds: 2340,
-          distance: 1.8,
-          scoreGained: 45,
-          tilesGained: 12,
-          pathCoords: [
-            { lat: 37.5665, lng: 126.9780 },
-            { lat: 37.5670, lng: 126.9785 },
-            { lat: 37.5675, lng: 126.9790 },
-            { lat: 37.5680, lng: 126.9795 },
-            { lat: 37.5685, lng: 126.9800 },
-          ],
-        };
-        localStorage.setItem('walkLogs', JSON.stringify([...existing, testLog]));
-      }
-    } catch {}
-  }, []);
+      return !sessionStorage.getItem('locationPromptSeen');
+    } catch {
+      return true;
+    }
+  });
+
+  const dismissLocationPrompt = () => {
+    try { sessionStorage.setItem('locationPromptSeen', '1'); } catch {}
+    setShowLocationPrompt(false);
+  };
+
+  const handleAllowLocation = () => {
+    navigator.geolocation.getCurrentPosition(() => {}, () => {});
+    dismissLocationPrompt();
+  };
 
   // GPS
-  const { position, error: gpsError } = useGPS();
+  const { position, error: gpsError } = useGPS(!showLocationPrompt);
 
-  // 드래그로 수동 설정한 위치 (GPS 위치를 덮어씀, localStorage 영속)
-  const [manualPosition, setManualPosition] = useState<{ lat: number; lng: number; speedKmh: number } | null>(() => {
-    try {
-      const saved = localStorage.getItem('manualPosition');
-      return saved ? JSON.parse(saved) : null;
-    } catch { return null; }
-  });
-  const effectivePosition = manualPosition ?? position;
+  const [overridePosition, setOverridePosition] = useState<{ lat: number; lng: number; speedKmh: number } | null>(null);
+
+  // 드래그 후에는 override가 우선, 그 전까지는 GPS
+  const effectivePosition = overridePosition ?? position;
 
   const handlePositionOverride = useCallback((lat: number, lng: number) => {
-    const pos = { lat, lng, speedKmh: 0 };
-    setManualPosition(pos);
-    localStorage.setItem('manualPosition', JSON.stringify(pos));
+    setOverridePosition({ lat, lng, speedKmh: 0 });
   }, []);
 
-  // GPS 위치 변경 시 경로 누적
+  // 위치 변경 시 경로 누적 (GPS + 드래그 모두 반영)
   useEffect(() => {
-    if (!position) return;
+    if (!effectivePosition) return;
     setPathCoords((prev) => {
       const last = prev[prev.length - 1];
-      if (last && last.lat === position.lat && last.lng === position.lng) return prev;
-      return [...prev, { lat: position.lat, lng: position.lng }];
+      if (last && last.lat === effectivePosition.lat && last.lng === effectivePosition.lng) return prev;
+      return [...prev, { lat: effectivePosition.lat, lng: effectivePosition.lng }];
     });
-  }, [position]);
-
-  // 수동 위치 변경 시 경로 누적
-  useEffect(() => {
-    if (!manualPosition) return;
-    setPathCoords((prev) => {
-      const last = prev[prev.length - 1];
-      if (last && last.lat === manualPosition.lat && last.lng === manualPosition.lng) return prev;
-      return [...prev, { lat: manualPosition.lat, lng: manualPosition.lng }];
-    });
-  }, [manualPosition]);
+  }, [effectivePosition?.lat, effectivePosition?.lng]);
 
   // 산책 타이머
   useEffect(() => {
@@ -249,7 +247,7 @@ export default function MapPage() {
     setWalkSeconds(0);
     setWalkDistance(0);
     setIsWalking(true);
-    showToast('산책을 시작합니다!', 'success');
+    showToast('산책을 시작했습니다!', 'success');
   }, [pathCoords.length, score, tiles, user?.uid, showToast]);
 
   // 산책 마치기 핸들러
@@ -269,6 +267,11 @@ export default function MapPage() {
     };
     setWalkSummary(summaryData);
 
+    // 세션 종료 + 거리 서버 저장
+    if (sessionIdRef.current && idToken) {
+      endSession(sessionIdRef.current, walkDistance, idToken).catch(() => {});
+    }
+
     // 산책 기록 localStorage 저장
     try {
       const now = new Date();
@@ -277,66 +280,28 @@ export default function MapPage() {
       const existing: unknown[] = JSON.parse(localStorage.getItem('walkLogs') || '[]');
       localStorage.setItem('walkLogs', JSON.stringify([...existing, walkRecord]));
     } catch {}
-  }, [walkSeconds, walkDistance, score, tiles, user?.uid, pathCoords]);
+  }, [walkSeconds, walkDistance, score, tiles, user?.uid, pathCoords, idToken]);
 
   // 점령 타일 수 (내 타일만)
   const myTileCount = tiles.filter((t) => t.occupantUserId === user?.uid).length;
 
-  // 추천 행동 힌트 계산
-  const actionHints = useMemo((): HintItem[] => {
-    if (!user) return [];
-    const hints: HintItem[] = [];
-
-    const myTileIds = new Set(tiles.filter(t => t.occupantUserId === user.uid).map(t => t.tileId));
-
-    // 점유 가능 인접 타일
-    const conquerable = new Set<string>();
-    myTileIds.forEach(tileId => {
-      const u = tileId.indexOf('_');
-      const gx = parseInt(tileId.slice(0, u), 10);
-      const gy = parseInt(tileId.slice(u + 1), 10);
-      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
-        const adjId = `${gx + dx}_${gy + dy}`;
-        if (!myTileIds.has(adjId)) conquerable.add(adjId);
-      }
-    });
-    if (conquerable.size > 0) {
-      hints.push({ icon: '⚔️', text: `점유 가능한 타일 ${conquerable.size}개`, variant: 'default' });
-    }
-
-    // 곧 만료될 내 타일
+  // 곧 만료될 내 타일 수
+  const expiringCount = useMemo(() => {
+    if (!user) return 0;
     const WARN_MS = 20 * 60 * 60 * 1000;
-    const expiringCount = tiles.filter(t =>
+    return tiles.filter(t =>
       t.occupantUserId === user.uid &&
       t.lastMarkedAt &&
       Date.now() - new Date(t.lastMarkedAt).getTime() > WARN_MS
     ).length;
-    if (expiringCount > 0) {
-      hints.push({ icon: '⚠️', text: `내 영역 ${expiringCount}곳 곧 만료`, variant: 'warning' });
-    }
-
-    // 랭킹 gap
-    if (leaderboardByScore.length > 0) {
-      const myRankEntry = leaderboardByScore.find(e => e.userId === user.uid);
-      if (myRankEntry && myRankEntry.rank > 1) {
-        const targetRank = myRankEntry.rank > 10 ? 10 : 1;
-        const target = leaderboardByScore.find(e => e.rank === targetRank);
-        if (target) {
-          const diff = target.totalScore - myRankEntry.totalScore;
-          hints.push({ icon: '🏆', text: `${targetRank}위까지 ${diff.toLocaleString()}점`, variant: 'gold' });
-        }
-      }
-    }
-
-    return hints;
-  }, [tiles, user, leaderboardByScore]);
+  }, [tiles, user]);
 
   // 필터 적용 타일
   const filteredTiles = useMemo(() => {
     if (!user) return tiles;
     switch (tileFilter) {
       case 'mine':   return tiles.filter((t) => t.occupantUserId === user.uid);
-      case 'rivals': return tiles.filter((t) => t.occupantUserId && t.occupantUserId !== user.uid);
+      case 'rivals': return tiles.filter((t) => t.occupantUserId !== null);
       default:       return tiles;
     }
   }, [tiles, tileFilter, user]);
@@ -346,28 +311,40 @@ export default function MapPage() {
     if (!authLoading && !user) router.replace('/login');
   }, [user, authLoading, router]);
 
-  // idToken 갱신
+  // idToken 자동 갱신 (Firebase가 만료 전 자동 갱신할 때마다 최신 토큰 수신)
+  useEffect(() => {
+    const unsubscribe = onIdTokenChanged(auth, async (u) => {
+      if (u) {
+        const token = await u.getIdToken();
+        idTokenRef.current = token;
+        setIdToken(token);
+      } else {
+        idTokenRef.current = null;
+        setIdToken(null);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 세션 시작 + 초기 점수 로드 (user 변경 시 1회만 실행, 토큰 갱신에는 반응 안 함)
   useEffect(() => {
     if (!user) return;
-    user.getIdToken().then(setIdToken);
-  }, [user]);
 
-  // 세션 시작 + 초기 점수 로드
-  useEffect(() => {
-    if (!user || !idToken) return;
+    const init = async () => {
+      // onIdTokenChanged가 먼저 세팅하지 못한 경우를 대비해 직접 획득
+      const token = idTokenRef.current ?? await user.getIdToken();
+      if (!token) return;
 
-    (async () => {
       try {
-        const sessRes = await startSession(user.uid, idToken);
+        const sessRes = await startSession(token);
         if (sessRes.success) sessionIdRef.current = sessRes.data.sessionId;
 
-        const scoreRes = await getScore(user.uid, idToken);
+        const scoreRes = await getScore(token);
         if (scoreRes.success) setScore(scoreRes.data.totalScore);
 
-        // 점령 타일 전체 선로드 + 소유자 이름 맵 구성
         const [occupiedRes, leaderRes] = await Promise.all([
-          getOccupiedTiles(idToken),
-          getLeaderboard(idToken),
+          getOccupiedTiles(token),
+          getLeaderboard(token),
         ]);
         if (occupiedRes.success && occupiedRes.data) {
           const occupied = occupiedRes.data as Tile[];
@@ -385,8 +362,10 @@ export default function MapPage() {
       } catch (e) {
         console.error('[MapPage] 세션/점수 초기화 실패:', e);
       }
-    })();
-  }, [user, idToken]);
+    };
+
+    init();
+  }, [user]);
 
   // 타일 목록 API 호출 (경계 기반)
   const fetchTiles = useCallback(
@@ -422,7 +401,7 @@ export default function MapPage() {
   // Socket.IO 연결 오류
   const handleConnectError = useCallback(() => {
     console.warn('[MapPage] Socket 연결 실패. idToken을 갱신합니다.');
-    user?.getIdToken(true).then(setIdToken);
+    user?.getIdToken(true).then((token) => { idTokenRef.current = token; setIdToken(token); });
   }, [user]);
 
   const { updateArea } = useSocket({ idToken, onTileUpdated: handleTileUpdated, onConnectError: handleConnectError });
@@ -471,26 +450,19 @@ export default function MapPage() {
           setCooldownUntil(Date.now() + secs * 1000);
           return;
         }
-        // 마킹된 타일을 tileMapRef에 즉시 반영 (fetchTiles 응답 전 화면에 먼저 표시)
+        // 기존 타일만 즉시 반영 (신규 타일은 fetchTiles가 정확한 중심 좌표로 갱신)
         const { tileId: markedTileId, isOccupied } = res.data;
-        if (markedTileId && effectivePosition) {
+        if (markedTileId) {
           const existing = tileMapRef.current.get(markedTileId);
           if (existing) {
             tileMapRef.current.set(markedTileId, { ...existing, occupantUserId: isOccupied ? user.uid : existing.occupantUserId });
-          } else {
-            tileMapRef.current.set(markedTileId, {
-              tileId: markedTileId,
-              lat: effectivePosition.lat,
-              lng: effectivePosition.lng,
-              occupantUserId: isOccupied ? user.uid : null,
-            });
+            setTiles(Array.from(tileMapRef.current.values()));
           }
-          setTiles(Array.from(tileMapRef.current.values()));
         }
 
         // 타일 점수가 아닌 유저 총점을 다시 조회해서 반영
         const scoreBeforeMarking = score;
-        const scoreRes = await getScore(user.uid, idToken);
+        const scoreRes = await getScore(idToken);
         if (scoreRes.success) {
           const delta = Math.max(0, scoreRes.data.totalScore - scoreBeforeMarking);
           setScore(scoreRes.data.totalScore);
@@ -508,10 +480,9 @@ export default function MapPage() {
           } catch {}
         }
         if (lastBoundsRef.current) fetchTiles(lastBoundsRef.current);
-        showToast(
-          res.data.isOccupied ? '🐾 영역을 점령했습니다!' : '마킹 완료!',
-          'success',
-        );
+        if (res.data.isOccupied) {
+          setTimeout(() => showToast('영역을 점령했습니다!', 'success'), 2000);
+        }
       }
     } catch (e) {
       console.error('[MapPage] 자동 마킹 실패:', e);
@@ -529,12 +500,21 @@ export default function MapPage() {
     const tileId = computeTileId(effectivePosition.lat, effectivePosition.lng);
     if (tileId === lastAutoMarkTileIdRef.current) return;
     lastAutoMarkTileIdRef.current = tileId;
+
+    // 경쟁자 타일 진입 알림
+    const currentTile = tileMapRef.current.get(tileId);
+    if (currentTile?.occupantUserId && currentTile.occupantUserId !== user?.uid) {
+      const ownerName = tileOwners[currentTile.occupantUserId] ?? '다른 유저';
+      showToast(`${ownerName}의 구역입니다! 마킹으로 빼앗아보세요.`, 'warning');
+    }
+
     handleMarkRef.current();
   }, [effectivePosition?.lat, effectivePosition?.lng, isWalking, cooldownUntil]);
 
-  // 다른 유저 클릭 → 프로필 팝업
+  // 다른 유저 핀 클릭 → 프로필 팝업 + 해당 유저 영역 표시
   const handleUserClick = useCallback(async (clickedUserId: string) => {
     if (!idToken) return;
+    setVisibleRivalUserId(clickedUserId);
     try {
       const res = await getUserProfile(clickedUserId, idToken);
       if (res.success && res.data) setUserProfile(res.data);
@@ -564,9 +544,20 @@ export default function MapPage() {
   // 로딩 중
   if (authLoading || !user) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gray-900">
-        <div className="animate-spin rounded-full h-10 w-10 border-4 border-yellow-400 border-t-transparent" />
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center" style={{ background: 'linear-gradient(160deg, #FFF7ED 0%, #FFEDD5 60%, #FED7AA 100%)' }}>
+        <img src="/bichon.png" alt="로딩 중" className="w-24 h-24 object-contain animate-bounce" />
+        <p className="mt-4 text-sm font-semibold text-gray-500">잠시만 기다려주세요!</p>
       </div>
+    );
+  }
+
+  // 위치 권한 안내 화면 (로그인 후 세션마다 1회)
+  if (showLocationPrompt) {
+    return (
+      <LocationPermissionPrompt
+        onAllow={handleAllowLocation}
+        onDeny={dismissLocationPrompt}
+      />
     );
   }
 
@@ -586,6 +577,10 @@ export default function MapPage() {
         initialPosition={effectivePosition ?? undefined}
         tileOwners={tileOwners}
         previewPosition={effectivePosition}
+        walkPathCoords={isWalking ? [
+          ...(walkStartPositionRef.current ? [walkStartPositionRef.current] : []),
+          ...pathCoords.slice(walkStartPathIndexRef.current),
+        ] : []}
         onBoundsChange={handleBoundsChange}
         onCenterChange={handleCenterChange}
         onPositionOverride={handlePositionOverride}
@@ -593,6 +588,8 @@ export default function MapPage() {
         onTileClick={handleTileClick}
         highlightLatLng={selectedTile !== undefined ? selectedTileLatLng : null}
         flyTo={flyTo}
+        visibleRivalUserId={visibleRivalUserId}
+        showAllRivals={tileFilter === 'rivals'}
       />
 
       {/* 온보딩 가이드 */}
@@ -616,7 +613,11 @@ export default function MapPage() {
         tileCount={myTileCount}
         userName={user.displayName ?? user.email ?? '사용자'}
         connected={true}
-        onLogout={logout}
+        expiringCount={expiringCount}
+        idToken={idToken ?? undefined}
+        onWalkLog={() => setShowWalkLog(true)}
+        onProfile={() => setShowProfile(true)}
+        onSettings={() => setShowSettings(true)}
       />
 
       {/* 필터 탭 */}
@@ -625,7 +626,7 @@ export default function MapPage() {
           {FILTER_TABS.map(({ key, label }) => (
             <button
               key={key}
-              onClick={() => setTileFilter(key)}
+              onClick={() => { setTileFilter(key); setVisibleRivalUserId(null); }}
               className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
                 tileFilter === key
                   ? 'bg-orange-400 text-white shadow-sm'
@@ -637,9 +638,6 @@ export default function MapPage() {
           ))}
         </div>
       </div>
-
-      {/* 추천 행동 힌트 */}
-      <ActionHint hints={actionHints} />
 
       {/* 미션 배너 — 필터 탭 아래 상시 표시 */}
       {missionState === 'banner' && (
@@ -690,6 +688,9 @@ export default function MapPage() {
         onStartWalk={handleStartWalk}
         isWalking={isWalking}
         disabled={!effectivePosition}
+        onDelete={handleDelete}
+        deleting={deleting}
+        deleteDisabled={!effectivePosition || deleting}
       />
 
       {/* 산책 중 정보 pill */}
@@ -729,153 +730,114 @@ export default function MapPage() {
       {/* 토스트 메시지 */}
       {toast && (
         <Toast
+          key={toast.key}
           message={toast.message}
           type={toast.type}
           onDismiss={() => setToast(null)}
         />
       )}
 
-      {/* 오른쪽 패널: 프로필 + 리더보드 (상하 절반) */}
+      {/* 우측 아이콘 컬럼 */}
       {idToken && (
-        <div className="absolute top-[104px] bottom-3 right-3 z-20 flex flex-col gap-3 w-80">
-          <div className="flex-1 min-h-0 relative">
-            {/* 프로필 좌측 상단 아이콘 3개 */}
-            <div className="absolute -left-14 top-0 z-30 flex flex-col gap-2">
-              {/* ① 미션 버튼 */}
-              <button
-                onClick={() => setMissionState(missionState === 'hidden' ? 'popup' : missionState === 'banner' ? 'popup' : 'hidden')}
-                className={`w-11 h-11 rounded-full flex items-center justify-center shadow-lg border transition-colors ${
-                  missionState !== 'hidden'
-                    ? 'bg-orange-400 border-orange-400'
-                    : 'bg-white/95 backdrop-blur-sm border-white/60'
-                }`}
-              >
-                <span className={`text-xl ${missionState === 'hidden' ? 'animate-pulse' : ''}`}>
-                  {missionState !== 'hidden' ? '❕' : '❗'}
-                </span>
-              </button>
+        <div className="absolute top-[104px] right-3 z-20 flex flex-col gap-2">
+          {/* ① 미션 버튼 */}
+          <button
+            onClick={() => {
+              if (missionState !== 'hidden') { setMissionState('hidden'); return; }
+              if (!hasSeenMission) { setHasSeenMission(true); setMissionState('popup'); }
+              else { setMissionState('banner'); }
+            }}
+            className={`w-11 h-11 rounded-full flex items-center justify-center border transition-colors ${
+              missionState !== 'hidden'
+                ? 'bg-orange-400 border-orange-400 shadow-lg'
+                : 'bg-white/95 backdrop-blur-sm border-yellow-300 mission-glow'
+            }`}
+          >
+            <span className="text-xl">❕</span>
+          </button>
 
-              {/* ② 현재 위치로 이동 */}
-              <button
-                onClick={() => {
-                  if (!effectivePosition) return;
-                  setFlyTo({ lat: effectivePosition.lat, lng: effectivePosition.lng, zoom: 18 });
-                  setTimeout(() => setFlyTo(null), 100);
-                }}
-                className="w-11 h-11 rounded-full bg-white/95 backdrop-blur-sm border border-white/60 flex items-center justify-center shadow-lg active:scale-95 transition-transform"
-              >
-                {/* Material Design "My Location" 아이콘 */}
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="#F97316">
-                  <path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/>
-                </svg>
-              </button>
+          {/* ② 랭킹 */}
+          <button
+            onClick={() => setShowLeaderboard(true)}
+            className="w-11 h-11 rounded-full bg-white/95 backdrop-blur-sm border border-white/60 flex items-center justify-center shadow-lg active:scale-95 transition-transform text-xl"
+          >
+            🏆
+          </button>
 
-              {/* ④ 메시지 */}
-              <button
-                onClick={() => setShowChatList(true)}
-                className="w-11 h-11 rounded-full bg-white/95 backdrop-blur-sm border border-white/60 flex items-center justify-center shadow-lg active:scale-95 transition-transform text-xl"
-              >
-                💬
-              </button>
+          {/* ③ 현재 위치로 이동 */}
+          <button
+            onClick={() => {
+              if (!effectivePosition) return;
+              setFlyTo({ lat: effectivePosition.lat, lng: effectivePosition.lng, zoom: 18 });
+              setTimeout(() => setFlyTo(null), 100);
+            }}
+            className="w-11 h-11 rounded-full bg-white/95 backdrop-blur-sm border border-white/60 flex items-center justify-center shadow-lg active:scale-95 transition-transform"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="#F97316">
+              <path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/>
+            </svg>
+          </button>
 
-              {/* ⑤ 커뮤니티 */}
-              <button
-                onClick={() => setShowCommunity(true)}
-                className="w-11 h-11 rounded-full bg-white/95 backdrop-blur-sm border border-white/60 flex items-center justify-center shadow-lg active:scale-95 transition-transform text-xl"
-              >
-                📋
-              </button>
+          {/* ④ 메시지 */}
+          <button
+            onClick={() => setShowChatList(true)}
+            className="w-11 h-11 rounded-full bg-white/95 backdrop-blur-sm border border-white/60 flex items-center justify-center shadow-lg active:scale-95 transition-transform text-xl"
+          >
+            💬
+          </button>
 
-              {/* ③ 강아지 선택 — 현재 강아지 이름 표시 */}
-              <div className="relative">
-                <button
-                  onClick={() => {
-                    try {
-                      const saved = localStorage.getItem('petProfiles');
-                      if (saved) setPetList(JSON.parse(saved));
-                    } catch {}
-                    setShowDogList((v) => !v);
-                  }}
-                  className={`w-11 h-11 rounded-full flex items-center justify-center shadow-lg border transition-colors text-sm font-bold ${
-                    showDogList
-                      ? 'bg-orange-400 border-orange-400 text-white'
-                      : 'bg-white/95 backdrop-blur-sm border-white/60 text-gray-700'
-                  }`}
-                >
-                  {(petList[activePetIdx]?.name ?? '🐾').slice(0, 2)}
-                </button>
+          {/* ⑤ 커뮤니티 */}
+          <button
+            onClick={() => setShowCommunity(true)}
+            className="w-11 h-11 rounded-full bg-white/95 backdrop-blur-sm border border-white/60 flex items-center justify-center shadow-lg active:scale-95 transition-transform text-xl"
+          >
+            📋
+          </button>
 
-                {/* 강아지 이름 목록 — 아래로 펼침 */}
-                {showDogList && (
-                  <div className="absolute left-0 top-[52px] flex flex-col gap-1.5">
-                    {petList
-                      .map((pet, i) => ({ pet, i }))
-                      .filter(({ i }) => i !== activePetIdx)
-                      .map(({ pet, i }) => (
-                        <button
-                          key={i}
-                          onClick={() => {
-                            setActivePetIdx(i);
-                            localStorage.setItem('activePetIdx', String(i));
-                            setShowDogList(false);
-                          }}
-                          className="w-11 h-11 rounded-full shadow-md text-sm font-bold flex items-center justify-center bg-white/95 backdrop-blur-sm text-gray-700 border border-white/60"
-                        >
-                          {pet.name.slice(0, 2)}
-                        </button>
-                      ))}
-                    {/* 강아지 추가 버튼 */}
-                    <button
-                      onClick={() => {
-                        setShowDogList(false);
-                        setAddingPet(true);
-                      }}
-                      className="w-11 h-11 rounded-full shadow-md text-xl font-bold flex items-center justify-center bg-white/95 backdrop-blur-sm border border-white/60 text-orange-400"
-                    >+</button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <PetProfile
-              walkSeconds={walkSeconds}
-              walkDistance={walkDistance}
-              isWalking={isWalking}
-              idToken={idToken}
-              activePetIdx={activePetIdx}
-              reloadTrigger={petReloadTrigger}
-              addingPet={addingPet}
-              onAddPetDone={(newPets, newIdx) => {
-                setPetList(newPets);
-                setActivePetIdx(newIdx);
-                setAddingPet(false);
-              }}
-              onAddPetCancel={() => setAddingPet(false)}
-              onPetsChange={(pets, idx) => {
-                setPetList(pets);
-                setActivePetIdx(idx);
-              }}
-            />
-          </div>
-          {/* 리더보드 + 휴지통 버튼 */}
-          <div className="flex-1 min-h-0 relative">
-            <Leaderboard
-              idToken={idToken}
-              currentUserId={user.uid}
-            />
-            {/* 휴지통 — 리더보드 좌측 하단, 상시 표시 */}
+          {/* ⑥ 강아지 선택 */}
+          <div className="relative">
             <button
-              onClick={handleDelete}
-              disabled={!effectivePosition || deleting}
-              className="absolute bottom-3 -left-14 w-11 h-11 rounded-full bg-white/90 backdrop-blur-sm
-                shadow-lg border border-gray-200 flex items-center justify-center text-xl
-                active:scale-95 transition-transform disabled:opacity-40 disabled:cursor-not-allowed"
+              onClick={() => {
+                try {
+                  const saved = localStorage.getItem('petProfiles');
+                  if (saved) setPetList(JSON.parse(saved));
+                } catch {}
+                setShowDogList((v) => !v);
+              }}
+              className={`w-11 h-11 rounded-full flex items-center justify-center shadow-lg border transition-colors text-sm font-bold ${
+                showDogList
+                  ? 'bg-orange-400 border-orange-400 text-white'
+                  : 'bg-white/95 backdrop-blur-sm border-white/60 text-gray-700'
+              }`}
             >
-              {deleting
-                ? <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-                : '🗑️'}
+              {(petList[activePetIdx]?.name ?? '🐕').slice(0, 2)}
             </button>
+            {showDogList && (
+              <div className="absolute right-0 top-[52px] flex flex-col gap-1.5">
+                {petList
+                  .map((pet, i) => ({ pet, i }))
+                  .filter(({ i }) => i !== activePetIdx)
+                  .map(({ pet, i }) => (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        setActivePetIdx(i);
+                        localStorage.setItem('activePetIdx', String(i));
+                        setShowDogList(false);
+                      }}
+                      className="w-11 h-11 rounded-full shadow-md text-sm font-bold flex items-center justify-center bg-white/95 backdrop-blur-sm text-gray-700 border border-white/60"
+                    >
+                      {pet.name.slice(0, 2)}
+                    </button>
+                  ))}
+                <button
+                  onClick={() => { setShowDogList(false); setAddingPet(true); }}
+                  className="w-11 h-11 rounded-full shadow-md text-xl font-bold flex items-center justify-center bg-white/95 backdrop-blur-sm border border-white/60 text-orange-400"
+                >+</button>
+              </div>
+            )}
           </div>
+
         </div>
       )}
 
@@ -924,6 +886,236 @@ export default function MapPage() {
           summary={walkSummary}
           onClose={() => setWalkSummary(null)}
         />
+      )}
+
+      {/* 랭킹 모달 */}
+      {showLeaderboard && idToken && (
+        <Leaderboard
+          idToken={idToken}
+          currentUserId={user.uid}
+          currentLat={effectivePosition?.lat}
+          currentLng={effectivePosition?.lng}
+          initialOpen
+          onClose={() => setShowLeaderboard(false)}
+        />
+      )}
+
+      {/* 강아지 추가 모달 (+ 버튼에서 직접 열림) */}
+      {addingPet && idToken && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setAddingPet(false)} />
+          <div className="relative w-full max-w-xs" style={{ maxHeight: '85vh' }}>
+            <PetProfile
+              walkSeconds={walkSeconds}
+              walkDistance={walkDistance}
+              isWalking={isWalking}
+              idToken={idToken}
+              activePetIdx={activePetIdx}
+              reloadTrigger={petReloadTrigger}
+              addingPet={true}
+              onAddPetDone={(newPets, newIdx) => {
+                setPetList(newPets);
+                setActivePetIdx(newIdx);
+                setAddingPet(false);
+              }}
+              onAddPetCancel={() => setAddingPet(false)}
+              onPetsChange={(pets, idx) => {
+                setPetList(pets);
+                setActivePetIdx(idx);
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 프로필 모달 */}
+      {showProfile && idToken && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowProfile(false)} />
+          <div className="relative w-full max-w-xs" style={{ maxHeight: '85vh' }}>
+            <PetProfile
+              walkSeconds={walkSeconds}
+              walkDistance={walkDistance}
+              isWalking={isWalking}
+              idToken={idToken}
+              activePetIdx={activePetIdx}
+              reloadTrigger={petReloadTrigger}
+              addingPet={false}
+              onAddPetDone={(newPets, newIdx) => {
+                setPetList(newPets);
+                setActivePetIdx(newIdx);
+              }}
+              onAddPetCancel={() => {}}
+              onPetsChange={(pets, idx) => {
+                setPetList(pets);
+                setActivePetIdx(idx);
+              }}
+            />
+            <button
+              onClick={() => setShowProfile(false)}
+              className="absolute top-3 right-3 w-7 h-7 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-xs hover:bg-gray-200 z-10"
+            >✕</button>
+          </div>
+        </div>
+      )}
+
+      {/* 산책일지 모달 */}
+      {showWalkLog && <WalkCalendarModal onClose={() => setShowWalkLog(false)} />}
+
+      {/* 설정 모달 */}
+      {showSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => { setShowSettings(false); setSettingsView('main'); setWithdrawStep(0); }} />
+          <div className={`relative w-full ${settingsView === 'terms' ? 'max-w-sm' : 'max-w-xs'} bg-white rounded-3xl shadow-2xl overflow-hidden`}>
+
+            {settingsView === 'main' && (
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-5">
+                  <h2 className="text-base font-bold text-gray-900">설정</h2>
+                  <button onClick={() => { setShowSettings(false); setSettingsView('main'); }}
+                    className="w-7 h-7 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-xs">✕</button>
+                </div>
+                <div className="space-y-2">
+                  {[
+                    { label: '알림 설정', icon: '🔔', onClick: () => setSettingsView('notifications') },
+                    { label: '이용약관', icon: '📄', onClick: () => setSettingsView('terms') },
+                  ].map(({ label, icon, onClick }) => (
+                    <button key={label} onClick={onClick}
+                      className="w-full h-12 rounded-2xl bg-gray-50 flex items-center px-4 gap-3 text-sm font-semibold text-gray-700 hover:bg-gray-100 transition-colors">
+                      <span className="text-base">{icon}</span>
+                      <span className="flex-1 text-left">{label}</span>
+                      <span className="text-gray-400 text-xs">›</span>
+                    </button>
+                  ))}
+                  <button onClick={() => { setShowSettings(false); logout(); }}
+                    className="w-full h-12 rounded-2xl bg-gray-50 flex items-center px-4 gap-3 text-sm font-semibold text-gray-700 hover:bg-gray-100 transition-colors">
+                    <span className="text-base">🚪</span>
+                    <span className="flex-1 text-left">로그아웃</span>
+                  </button>
+                  <button onClick={() => setSettingsView('withdraw')}
+                    className="w-full h-12 rounded-2xl bg-red-50 flex items-center px-4 gap-3 text-sm font-semibold text-red-500 hover:bg-red-100 transition-colors">
+                    <span className="text-base">⚠️</span>
+                    <span className="flex-1 text-left">회원 탈퇴</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {settingsView === 'notifications' && (
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-5">
+                  <h2 className="text-base font-bold text-gray-900">알림 설정</h2>
+                  <button onClick={() => setSettingsView('main')} className="text-orange-500 font-bold text-sm">뒤로</button>
+                </div>
+                <div className="space-y-3">
+                  {[
+                    { key: 'tileStolen', label: '내 영역 탈취 알림' },
+                    { key: 'newComment', label: '댓글 알림' },
+                    { key: 'newLike', label: '좋아요 알림' },
+                    { key: 'newMessage', label: '새 메시지 알림' },
+                    { key: 'decayWarning', label: '영역 만료 경고' },
+                  ].map(({ key, label }) => (
+                    <div key={key} className="flex items-center justify-between py-2">
+                      <span className="text-sm font-medium text-gray-700">{label}</span>
+                      <button
+                        onClick={() => {
+                          const updated = { ...notifSettings, [key]: !notifSettings[key] };
+                          setNotifSettings(updated);
+                          localStorage.setItem('notifSettings', JSON.stringify(updated));
+                        }}
+                        className={`w-11 h-6 rounded-full transition-colors flex items-center px-0.5 shrink-0 ${notifSettings[key] !== false ? 'bg-orange-400' : 'bg-gray-200'}`}
+                      >
+                        <span className={`w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${notifSettings[key] !== false ? 'translate-x-5' : ''}`} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {settingsView === 'terms' && (
+              <div className="p-6 max-h-[80vh] overflow-y-auto [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-base font-bold text-gray-900">이용약관</h2>
+                  <button onClick={() => setSettingsView('main')} className="text-orange-500 font-bold text-sm">뒤로</button>
+                </div>
+                <div className="space-y-4 text-sm text-gray-600 leading-relaxed">
+                  <div>
+                    <p className="font-bold text-gray-800 mb-1">제1조 (목적)</p>
+                    <p>이 약관은 퍼피랜드 서비스(이하 "서비스")의 이용 조건 및 절차, 이용자와 서비스 운영자의 권리·의무 및 책임 사항을 규정함을 목적으로 합니다.</p>
+                  </div>
+                  <div>
+                    <p className="font-bold text-gray-800 mb-1">제2조 (서비스 이용)</p>
+                    <p>서비스는 반려견과 함께 산책하며 GPS 기반 영역을 점령하는 게임입니다. 이용자는 실제 산책 중에만 서비스를 이용해야 하며, 부정한 방법으로 포인트를 획득해서는 안 됩니다.</p>
+                  </div>
+                  <div>
+                    <p className="font-bold text-gray-800 mb-1">제3조 (개인정보 보호)</p>
+                    <p>서비스는 이용자의 GPS 위치 정보를 산책 중에만 수집·이용하며, 개인정보 보호법에 따라 안전하게 관리합니다. 수집된 위치 정보는 타일 점령 계산에만 사용됩니다.</p>
+                  </div>
+                  <div>
+                    <p className="font-bold text-gray-800 mb-1">제4조 (금지 행위)</p>
+                    <p>이용자는 다른 이용자를 비방하거나, 허위 정보를 게시하거나, 시스템을 부정하게 조작하는 행위를 해서는 안 됩니다.</p>
+                  </div>
+                  <div>
+                    <p className="font-bold text-gray-800 mb-1">제5조 (면책)</p>
+                    <p>서비스는 천재지변, GPS 오류 등 불가피한 사유로 인한 서비스 중단에 대해 책임을 지지 않습니다. 실외 활동 중 발생하는 안전 사고에 대해서도 책임을 지지 않습니다.</p>
+                  </div>
+                  <p className="text-gray-400 text-xs mt-4">최종 수정일: 2026년 4월 27일</p>
+                </div>
+              </div>
+            )}
+
+            {settingsView === 'withdraw' && (
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-5">
+                  <h2 className="text-base font-bold text-gray-900">회원 탈퇴</h2>
+                  <button onClick={() => { setSettingsView('main'); setWithdrawStep(0); }} className="text-orange-500 font-bold text-sm">뒤로</button>
+                </div>
+                {withdrawStep === 0 ? (
+                  <div className="text-center">
+                    <p className="text-4xl mb-3">⚠️</p>
+                    <p className="text-sm font-bold text-gray-800 mb-2">정말 탈퇴하시겠어요?</p>
+                    <p className="text-xs text-gray-500 mb-6 leading-relaxed">탈퇴 시 모든 영역 데이터, 포인트, 산책 기록이 삭제되며 복구할 수 없습니다.</p>
+                    <div className="flex gap-2">
+                      <button onClick={() => { setSettingsView('main'); setWithdrawStep(0); }}
+                        className="flex-1 h-11 rounded-2xl border border-gray-200 text-gray-600 text-sm font-semibold">
+                        취소
+                      </button>
+                      <button onClick={() => setWithdrawStep(1)}
+                        className="flex-1 h-11 rounded-2xl bg-red-500 text-white text-sm font-bold">
+                        다음
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center">
+                    <p className="text-sm font-bold text-red-600 mb-2">탈퇴를 최종 확인합니다</p>
+                    <p className="text-xs text-gray-500 mb-6">아래 버튼을 누르면 계정이 즉시 삭제됩니다.</p>
+                    <div className="flex gap-2">
+                      <button onClick={() => setWithdrawStep(0)}
+                        className="flex-1 h-11 rounded-2xl border border-gray-200 text-gray-600 text-sm font-semibold">
+                        취소
+                      </button>
+                      <button
+                        onClick={async () => {
+                          try {
+                            localStorage.clear();
+                            await user.delete();
+                          } catch {
+                            logout();
+                          }
+                        }}
+                        className="flex-1 h-11 rounded-2xl bg-red-500 text-white text-sm font-bold">
+                        탈퇴하기
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+          </div>
+        </div>
       )}
     </div>
   );

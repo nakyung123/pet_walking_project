@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { upsertUser } from '../services/userService';
 import { ApiResponse, User, UserProfile } from '../types';
+import logger from '../utils/logger';
 import pool from '../db/pool';
 
 interface RegisterUserBody {
@@ -27,7 +28,7 @@ export const registerUser = async (
       return;
     }
 
-    console.log('[UserController] 사용자 등록 요청 — uid:', uid);
+    logger.debug('[UserController] 사용자 등록 요청 — uid: %s', uid);
     const user = await upsertUser(uid, displayName, dogName);
 
     const body: ApiResponse<User> = { success: true, data: user, error: null };

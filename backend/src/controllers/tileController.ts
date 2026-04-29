@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { getTilesByViewport, getAllOccupiedTiles, clearTileAtPosition } from '../services/tileService';
 import { ApiResponse, Tile } from '../types';
+import logger from '../utils/logger';
 
 export const getTilesInView = async (
   req: Request,
@@ -9,7 +10,7 @@ export const getTilesInView = async (
 ): Promise<void> => {
   try {
     const { minLat, maxLat, minLng, maxLng } = req.query;
-    console.log('[Tile] 뷰포트 조회:', { minLat, maxLat, minLng, maxLng });
+    logger.debug('[Tile] 뷰포트 조회:', { minLat, maxLat, minLng, maxLng });
 
     const tiles = await getTilesByViewport(
       Number(minLat),
@@ -18,7 +19,7 @@ export const getTilesInView = async (
       Number(maxLng)
     );
 
-    console.log('[Tile] 조회된 타일 수:', tiles.length);
+    logger.debug('[Tile] 조회된 타일 수:', tiles.length);
     const response: ApiResponse<Tile[]> = { success: true, data: tiles, error: null };
     res.status(200).json(response);
   } catch (err) {

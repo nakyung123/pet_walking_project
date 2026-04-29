@@ -2,6 +2,7 @@ import { Server as HttpServer } from 'http';
 import { Server as IOServer, Socket } from 'socket.io';
 import admin from './firebase';
 import { isValidAreaKey } from './utils/areaKey';
+import logger from './utils/logger';
 import type { ChatMessage } from './services/chatService';
 
 export interface TileUpdatedPayload {
@@ -46,7 +47,7 @@ export function initSocketIO(httpServer: HttpServer): IOServer {
 
   io.on('connection', (socket: Socket) => {
     const uid = (socket as Socket & { uid: string }).uid;
-    console.log(`[Socket] 연결: ${socket.id} (uid=${uid})`);
+    logger.debug(`[Socket] 연결: ${socket.id} (uid=${uid})`);
 
     // 유저 개인 룸 자동 입장 (DM 수신용)
     socket.join(`user:${uid}`);
@@ -54,26 +55,26 @@ export function initSocketIO(httpServer: HttpServer): IOServer {
     // 클라이언트가 특정 areaKey 룸에 입장
     socket.on('join_area', (areaKey: unknown) => {
       if (!isValidAreaKey(areaKey)) {
-        console.warn(`[Socket] 잘못된 areaKey: ${areaKey}`);
+        logger.warn(`[Socket] 잘못된 areaKey: ${areaKey}`);
         return;
       }
       socket.join(areaKey);
-      console.log(`[Socket] ${socket.id} join_area → ${areaKey}`);
+      logger.debug(`[Socket] ${socket.id} join_area → ${areaKey}`);
     });
 
     // 클라이언트가 areaKey 룸에서 퇴장
     socket.on('leave_area', (areaKey: unknown) => {
       if (!isValidAreaKey(areaKey)) return;
       socket.leave(areaKey);
-      console.log(`[Socket] ${socket.id} leave_area → ${areaKey}`);
+      logger.debug(`[Socket] ${socket.id} leave_area → ${areaKey}`);
     });
 
     socket.on('disconnect', (reason) => {
-      console.log(`[Socket] 연결 해제: ${socket.id} (reason=${reason})`);
+      logger.debug(`[Socket] 연결 해제: ${socket.id} (reason=${reason})`);
     });
   });
 
-  console.log('[Socket] Socket.IO 서버 초기화 완료');
+  logger.info('[Socket] Socket.IO 서버 초기화 완료');
   return io;
 }
 
@@ -86,7 +87,7 @@ export function emitNewMessage(userId1: string, userId2: string, message: ChatMe
   const payload = { message };
   io.to(`user:${userId1}`).emit('new_message', payload);
   io.to(`user:${userId2}`).emit('new_message', payload);
-  console.log(`[Socket] new_message → user:${userId1}, user:${userId2}`);
+  logger.debug(`[Socket] new_message → user:${userId1}, user:${userId2}`);
 }
 
 /**
@@ -102,5 +103,5 @@ export function emitTileUpdated(
     return;
   }
   io.to(areaKey).emit('tile_updated', payload);
-  console.log(`[Socket] tile_updated → ${areaKey}`, payload);
+  logger.debug(`[Socket] tile_updated → ${areaKey}`, payload);
 }

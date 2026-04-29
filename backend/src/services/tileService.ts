@@ -1,4 +1,5 @@
 import pool from '../db/pool';
+import logger from '../utils/logger';
 import { Tile } from '../types';
 
 /**
@@ -28,7 +29,7 @@ export const getTilesByViewport = async (
     [minLng, minLat, maxLng, maxLat]
   );
 
-  console.log('[tileService] 조회 범위:', { minLat, maxLat, minLng, maxLng });
+  logger.debug('[tileService] 조회 범위: %o', { minLat, maxLat, minLng, maxLng });
   return result.rows.map((row) => ({
     tileId: row.tile_id,
     lat: row.center_lat,

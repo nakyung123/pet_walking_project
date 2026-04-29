@@ -173,7 +173,7 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
         <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3 bg-gray-50">
           {messages.length === 0 && (
             <p className="text-center text-xs text-gray-400 mt-10">
-              {otherUser.dogName}에게 첫 메시지를 보내보세요 🐾
+              {otherUser.dogName}에게 첫 메시지를 보내보세요
             </p>
           )}
           {messages.map((msg) => {
@@ -216,7 +216,7 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
             }}
             placeholder="메시지 입력..."
-            className="flex-1 h-10 px-4 rounded-full bg-gray-100 text-sm outline-none"
+            className="flex-1 h-10 px-4 rounded-full bg-gray-100 text-sm outline-none text-gray-900"
           />
           <button
             onClick={handleSend}

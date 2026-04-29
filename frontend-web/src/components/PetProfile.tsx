@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { updateMyProfile } from '@/services/api';
 import WalkSummaryModal from '@/components/WalkSummaryModal';
@@ -34,7 +34,127 @@ function loadPointHistory(): PointRecord[] {
 
 const WEEK_DAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
-function WalkCalendarModal({ onClose }: { onClose: () => void }) {
+const CHOSUNG_LIST = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+
+function getChosung(char: string): string {
+  const code = char.charCodeAt(0);
+  if (code >= 0xAC00 && code <= 0xD7A3) return CHOSUNG_LIST[Math.floor((code - 0xAC00) / (21 * 28))];
+  return char;
+}
+
+function matchBreed(breed: string, query: string): boolean {
+  if (!query.trim()) return false;
+  if (breed.includes(query)) return true;
+  const isChosung = [...query].every((c) => CHOSUNG_LIST.includes(c));
+  if (isChosung) return [...breed].map(getChosung).join('').includes(query);
+  return false;
+}
+
+const DOG_BREEDS = [
+  '믹스견',
+  // 소형견
+  '치와와', '말티즈', '포메라니안', '요크셔테리어', '시추', '비숑프리제',
+  '미니어처 핀셔', '파피용', '이탈리안 그레이하운드', '토이 푸들',
+  '닥스훈트', '퍼그', '프렌치 불독', '보스턴 테리어', '잭 러셀 테리어',
+  '웰시 코기', '미니어처 슈나우저', '스코티시 테리어', '실키 테리어',
+  '하바니즈', '말티푸', '포치온', '쉬츄',
+  // 중형견
+  '비글', '코커 스패니얼', '샤페이', '차우차우', '바센지',
+  '불독', '시바 이누', '아키타', '바셋 하운드', '달마시안',
+  '아메리칸 스태퍼드셔 테리어', '불 테리어', '케이스혼트',
+  '포르투갈 워터독', '스탠더드 슈나우저',
+  // 대형견
+  '래브라도 리트리버', '골든 리트리버', '저먼 셰퍼드', '보더 콜리',
+  '시베리안 허스키', '알래스칸 말라뮤트', '사모예드', '도베르만',
+  '로트와일러', '복서', '그레이트 데인', '세인트 버나드',
+  '버니즈 마운틴 독', '뉴펀들랜드', '아이리시 세터', '잉글리시 세터',
+  '비즐라', '와이마라너', '그레이하운드', '아프간 하운드',
+  '스탠더드 푸들', '오스트레일리안 셰퍼드', '말리노이즈',
+  // 한국 견종
+  '진돗개', '풍산개', '삽살개', '동경이',
+];
+
+function BreedSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const filtered = query.trim() ? DOG_BREEDS.filter((b) => matchBreed(b, query.trim())) : [];
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery('');
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const select = (breed: string) => {
+    onChange(breed);
+    setOpen(false);
+    setQuery('');
+  };
+
+  const handleOpen = () => {
+    setOpen(true);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  return (
+    <div ref={containerRef} className="flex-1 relative">
+      {!open ? (
+        <div
+          onClick={handleOpen}
+          className="flex items-center border border-gray-200 rounded-lg px-2 py-1.5 gap-1 cursor-pointer"
+        >
+          <span className={`flex-1 text-xs truncate ${value ? 'text-gray-800' : 'text-gray-500'}`}>
+            {value || '견종 선택하기'}
+          </span>
+          <span className="text-gray-500 text-[10px] shrink-0">▼</span>
+        </div>
+      ) : (
+        <div className="flex items-center border border-orange-400 rounded-lg px-2 py-1.5 gap-1">
+          <input
+            ref={inputRef}
+            value={query}
+            placeholder="견종을 검색해주세요"
+            onChange={(e) => setQuery(e.target.value)}
+            className="flex-1 text-xs text-gray-800 focus:outline-none placeholder:text-gray-500 bg-transparent"
+          />
+          <span className="text-gray-500 text-[10px] shrink-0">▲</span>
+        </div>
+      )}
+
+      {open && (
+        <ul className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-50 max-h-44 overflow-y-auto">
+          {query.trim() === '' ? (
+            <li className="text-xs text-gray-500 text-center py-3">견종을 입력하면 검색돼요</li>
+          ) : filtered.length === 0 ? (
+            <li className="text-xs text-gray-400 text-center py-3">검색 결과 없음</li>
+          ) : (
+            filtered.map((b) => (
+              <li
+                key={b}
+                onMouseDown={() => select(b)}
+                className={`text-xs px-3 py-2 cursor-pointer hover:bg-orange-50 transition-colors ${
+                  b === value ? 'text-orange-500 font-bold' : 'text-gray-700'
+                }`}
+              >
+                {b}
+              </li>
+            ))
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+export function WalkCalendarModal({ onClose }: { onClose: () => void }) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
@@ -158,7 +278,7 @@ function PointHistoryModal({ onClose }: { onClose: () => void }) {
   const total = history.reduce((s, h) => s + h.points, 0);
 
   const TYPE_ICON: Record<PointRecord['type'], string> = {
-    marking: '🐾',
+    marking: '📍',
     mission: '⭐',
     occupy: '🏆',
   };
@@ -219,20 +339,14 @@ interface PetData {
 }
 
 const DEFAULT_PET: PetData = {
-  name: '우리 강아지',
-  breed: '믹스견',
-  age: '1살',
+  name: '',
+  breed: '',
+  age: '',
   gender: 'male',
   neutered: false,
-  personality: '활발해요',
-  weight: 5,
+  personality: '',
+  weight: 0,
 };
-
-function todayLabel(): string {
-  const now = new Date();
-  const days = ['일', '월', '화', '수', '목', '금', '토'];
-  return `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 ${days[now.getDay()]}요일`;
-}
 
 function loadPets(): PetData[] {
   try {
@@ -282,19 +396,11 @@ export default function PetProfile({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<PetData>(DEFAULT_PET);
   const [addDraft, setAddDraft] = useState<PetData>(DEFAULT_PET);
-  const [today, setToday] = useState('');
-  const [showWalkLog, setShowWalkLog] = useState(false);
   const [showPoints, setShowPoints] = useState(false);
   const [totalPoints, setTotalPoints] = useState(0);
 
   useEffect(() => {
     setTotalPoints(loadPointHistory().reduce((s, h) => s + h.points, 0));
-  }, []);
-
-  useEffect(() => {
-    setToday(todayLabel());
-    const id = setInterval(() => setToday(todayLabel()), 60_000);
-    return () => clearInterval(id);
   }, []);
 
   useEffect(() => {
@@ -333,7 +439,19 @@ export default function PetProfile({
     onPetsChange?.(newPets, newIdx);
   };
 
+  const handleDelete = () => {
+    if (pets.length <= 1) return;
+    const newPets = pets.filter((_, i) => i !== activePetIdx);
+    const newIdx = Math.max(0, activePetIdx - 1);
+    setPets(newPets);
+    setActivePetIdx(newIdx);
+    setDraft(newPets[newIdx] ?? DEFAULT_PET);
+    savePets(newPets, newIdx);
+    setEditing(false);
+  };
+
   const handleSave = () => {
+    if (!draft.name.trim() || !draft.age || !draft.breed || !draft.personality.trim()) return;
     const newPets = pets.map((p, i) => (i === activePetIdx ? draft : p));
     setPets(newPets);
     savePets(newPets, activePetIdx);
@@ -350,10 +468,11 @@ export default function PetProfile({
 
   // addingPet 진입 시 빈 폼 초기화
   useEffect(() => {
-    if (addingPet) setAddDraft({ ...DEFAULT_PET, name: '' });
+    if (addingPet) setAddDraft({ ...DEFAULT_PET, name: '', breed: '', age: '', personality: '' });
   }, [addingPet]);
 
   const handleAddSave = () => {
+    if (!addDraft.name.trim() || !addDraft.age || !addDraft.breed || !addDraft.personality.trim()) return;
     const newPets = [...pets, addDraft];
     const newIdx = newPets.length - 1;
     setPets(newPets);
@@ -384,17 +503,9 @@ export default function PetProfile({
 
   if (addingPet) {
     return (
-      <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-xl p-4 w-full h-full overflow-y-auto [&::-webkit-scrollbar]:hidden">
-        <div className="flex items-center justify-between mb-3">
+      <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-xl p-4 w-full h-full flex flex-col [&::-webkit-scrollbar]:hidden">
+        <div className="mb-3 shrink-0">
           <span className="text-sm font-bold text-gray-800">강아지 정보 추가</span>
-          <div className="flex gap-3">
-            <button onClick={onAddPetCancel} className="text-xs text-gray-400 hover:text-gray-600">
-              취소
-            </button>
-            <button onClick={handleAddSave} className="text-xs font-bold text-orange-500 hover:text-orange-600">
-              추가
-            </button>
-          </div>
         </div>
 
         <label className="flex flex-col items-center mb-3 cursor-pointer">
@@ -412,36 +523,63 @@ export default function PetProfile({
         <div className="space-y-2">
           {(
             [
-              { label: '이름', key: 'name' },
-              { label: '견종', key: 'breed' },
-              { label: '나이', key: 'age' },
-              { label: '성격', key: 'personality' },
-            ] as { label: string; key: keyof PetData }[]
-          ).map(({ label, key }) => (
+              { label: '이름', key: 'name', placeholder: '이름을 입력해주세요' },
+              { label: '성격', key: 'personality', placeholder: '성격을 입력해주세요' },
+            ] as { label: string; key: keyof PetData; placeholder: string }[]
+          ).map(({ label, key, placeholder }) => (
             <div key={key} className="flex items-center gap-2">
-              <span className="text-xs text-gray-500 w-10 shrink-0">{label}</span>
+              <span className="text-xs text-gray-700 font-medium w-10 shrink-0">{label}</span>
               <input
                 value={addDraft[key] as string}
+                placeholder={placeholder}
                 maxLength={key === 'name' ? 8 : undefined}
                 onChange={(e) => setAddDraft((prev) => ({ ...prev, [key]: e.target.value }))}
-                className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400"
+                className="flex-1 text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400"
               />
             </div>
           ))}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">나이</span>
+            <div className="flex items-center gap-1">
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={addDraft.age}
+                placeholder="0"
+                onChange={(e) => setAddDraft((prev) => ({ ...prev, age: e.target.value.replace(/[^0-9]/g, '').slice(0, 2) }))}
+                className="w-16 text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400"
+              />
+              <span className="text-xs text-gray-600 font-medium">살</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">견종</span>
+            <BreedSelect
+              value={addDraft.breed}
+              onChange={(v) => setAddDraft((prev) => ({ ...prev, breed: v }))}
+            />
+          </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 w-10 shrink-0">체중</span>
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">체중</span>
             <input
-              type="number" min={0.1} step={0.1}
-              value={addDraft.weight}
-              onChange={(e) => setAddDraft((prev) => ({ ...prev, weight: Number(e.target.value) }))}
-              className="w-16 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400"
+              type="text"
+              inputMode="decimal"
+              value={addDraft.weight || ''}
+              placeholder="0.0"
+              onChange={(e) => {
+                const raw = e.target.value.replace(/[^0-9.]/g, '');
+                const clean = raw.split('.').length > 2 ? raw.slice(0, raw.lastIndexOf('.')) : raw;
+                setAddDraft((prev) => ({ ...prev, weight: clean === '' ? 0 : (parseFloat(clean) || prev.weight) }));
+              }}
+              className="w-16 text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400"
             />
             <span className="text-xs text-gray-500">kg</span>
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 w-10 shrink-0">성별</span>
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">성별</span>
             {(['male', 'female'] as const).map((g) => (
               <button
                 key={g}
@@ -458,7 +596,7 @@ export default function PetProfile({
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 w-10 shrink-0">중성화</span>
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">중성화</span>
             {[true, false].map((v) => (
               <button
                 key={String(v)}
@@ -472,93 +610,109 @@ export default function PetProfile({
             ))}
           </div>
         </div>
+
+        <div className="mt-4 shrink-0 flex gap-2">
+          <button
+            onClick={onAddPetCancel}
+            className="flex-1 h-11 rounded-2xl border border-gray-200 text-gray-500 text-sm font-semibold hover:bg-gray-50 active:scale-[0.98] transition-transform"
+          >
+            취소
+          </button>
+          <button
+            onClick={handleAddSave}
+            disabled={!addDraft.name.trim() || !addDraft.age || !addDraft.breed || !addDraft.personality.trim()}
+            className="flex-1 h-11 rounded-2xl text-white text-sm font-bold active:scale-[0.98] transition-transform disabled:opacity-40"
+            style={{ background: 'linear-gradient(135deg, #FB923C, #F97316)' }}
+          >
+            추가
+          </button>
+        </div>
       </div>
     );
   }
 
   if (editing) {
     return (
-      <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-xl p-4 w-full h-full overflow-y-auto [&::-webkit-scrollbar]:hidden">
-        <div className="flex items-center justify-between mb-3">
+      <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-xl p-4 w-full h-full flex flex-col overflow-y-auto [&::-webkit-scrollbar]:hidden">
+        <div className="mb-3 shrink-0">
           <span className="text-sm font-bold text-gray-800">강아지 정보 수정</span>
-          <div className="flex gap-3">
-            <button onClick={() => setEditing(false)} className="text-xs text-gray-400 hover:text-gray-600">
-              취소
-            </button>
-            <button onClick={handleSave} className="text-xs font-bold text-orange-500 hover:text-orange-600">
-              저장
-            </button>
-          </div>
         </div>
 
-        {/* 사진 업로드 + 강아지 삭제 */}
-        <div className="flex flex-col items-center mb-3">
-          <div className="relative">
-            <label className="flex flex-col items-center cursor-pointer">
-              <div className="w-16 h-16 rounded-full bg-orange-50 border-2 border-orange-200 overflow-hidden flex items-center justify-center mb-1">
-                {draft.photoUrl ? (
-                  <img src={draft.photoUrl} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-2xl">🐶</span>
-                )}
-              </div>
-              <input type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
-            </label>
-            {/* 강아지 삭제 버튼 (1마리일 땐 숨김) */}
-            {pets.length > 1 && (
-              <button
-                onClick={() => {
-                  const newPets = pets.filter((_, idx) => idx !== activePetIdx);
-                  const newIdx = Math.min(activePetIdx, newPets.length - 1);
-                  setPets(newPets);
-                  setActivePetIdx(newIdx);
-                  setDraft(newPets[newIdx]);
-                  savePets(newPets, newIdx);
-                  setEditing(false);
-                }}
-                className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-gray-500 hover:bg-red-500 text-white flex items-center justify-center transition-colors z-10"
-                style={{ fontSize: '10px', lineHeight: 1 }}
-              >✕</button>
-            )}
-          </div>
+        {/* 사진 업로드 */}
+        <div className="flex flex-col items-center mb-3 shrink-0">
+          <label className="flex flex-col items-center cursor-pointer">
+            <div className="w-16 h-16 rounded-full bg-orange-50 border-2 border-orange-200 overflow-hidden flex items-center justify-center mb-1">
+              {draft.photoUrl ? (
+                <img src={draft.photoUrl} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-2xl">🐶</span>
+              )}
+            </div>
+            <input type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
+          </label>
           <span className="text-xs text-orange-500">사진 변경</span>
         </div>
 
         <div className="space-y-2">
           {(
             [
-              { label: '이름', key: 'name' },
-              { label: '견종', key: 'breed' },
-              { label: '나이', key: 'age' },
-              { label: '성격', key: 'personality' },
-            ] as { label: string; key: keyof PetData }[]
-          ).map(({ label, key }) => (
+              { label: '이름', key: 'name', placeholder: '이름을 입력해주세요' },
+              { label: '성격', key: 'personality', placeholder: '성격을 입력해주세요' },
+            ] as { label: string; key: keyof PetData; placeholder: string }[]
+          ).map(({ label, key, placeholder }) => (
             <div key={key} className="flex items-center gap-2">
-              <span className="text-xs text-gray-500 w-10 shrink-0">{label}</span>
+              <span className="text-xs text-gray-700 font-medium w-10 shrink-0">{label}</span>
               <input
                 value={draft[key] as string}
+                placeholder={placeholder}
                 maxLength={key === 'name' ? 8 : undefined}
                 onChange={(e) => setDraft((prev) => ({ ...prev, [key]: e.target.value }))}
-                className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400"
+                className="flex-1 text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400"
               />
             </div>
           ))}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">나이</span>
+            <div className="flex items-center gap-1">
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={draft.age}
+                placeholder="0"
+                onChange={(e) => setDraft((prev) => ({ ...prev, age: e.target.value.replace(/[^0-9]/g, '').slice(0, 2) }))}
+                className="w-16 text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400"
+              />
+              <span className="text-xs text-gray-600 font-medium">살</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">견종</span>
+            <BreedSelect
+              value={draft.breed}
+              onChange={(v) => setDraft((prev) => ({ ...prev, breed: v }))}
+            />
+          </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 w-10 shrink-0">체중</span>
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">체중</span>
             <input
-              type="number"
-              min={0.1}
-              step={0.1}
-              value={draft.weight}
-              onChange={(e) => setDraft((prev) => ({ ...prev, weight: Number(e.target.value) }))}
-              className="w-16 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400"
+              type="text"
+              inputMode="decimal"
+              value={draft.weight || ''}
+              placeholder="0.0"
+              onChange={(e) => {
+                const raw = e.target.value.replace(/[^0-9.]/g, '');
+                const clean = raw.split('.').length > 2 ? raw.slice(0, raw.lastIndexOf('.')) : raw;
+                setDraft((prev) => ({ ...prev, weight: clean === '' ? 0 : (parseFloat(clean) || prev.weight) }));
+              }}
+              className="w-16 text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400"
             />
             <span className="text-xs text-gray-500">kg</span>
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 w-10 shrink-0">성별</span>
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">성별</span>
             {(['male', 'female'] as const).map((g) => (
               <button
                 key={g}
@@ -577,7 +731,7 @@ export default function PetProfile({
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 w-10 shrink-0">중성화</span>
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">중성화</span>
             {[true, false].map((v) => (
               <button
                 key={String(v)}
@@ -593,27 +747,37 @@ export default function PetProfile({
             ))}
           </div>
         </div>
+
+        <div className="mt-4 shrink-0 flex gap-2">
+          <button
+            onClick={() => setEditing(false)}
+            className="flex-1 h-11 rounded-2xl border border-gray-200 text-gray-600 text-sm font-semibold hover:bg-gray-50 active:scale-[0.98] transition-transform"
+          >
+            취소
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!draft.name.trim() || !draft.age || !draft.breed || !draft.personality.trim()}
+            className="flex-1 h-11 rounded-2xl text-white text-sm font-bold active:scale-[0.98] transition-transform disabled:opacity-40"
+            style={{ background: 'linear-gradient(135deg, #FB923C, #F97316)' }}
+          >
+            저장
+          </button>
+        </div>
+        {pets.length > 1 && (
+          <button
+            onClick={handleDelete}
+            className="mt-2 w-full h-10 rounded-2xl border border-red-200 text-red-500 text-sm font-semibold hover:bg-red-50 active:scale-[0.98] transition-transform"
+          >
+            이 반려견 삭제
+          </button>
+        )}
       </div>
     );
   }
 
   return (
     <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-xl px-5 py-4 w-full h-full flex flex-col">
-      {/* 날짜 + 편집 버튼 */}
-      <div className="flex items-center justify-between shrink-0">
-        <span className="text-xs text-gray-400 font-medium">{today}</span>
-        <button
-          onClick={() => { setDraft(pet); setEditing(true); }}
-          className="text-gray-300 hover:text-gray-500 transition-colors"
-          aria-label="편집"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-          </svg>
-        </button>
-      </div>
-
       {/* 강아지 정보 */}
       <div className="flex-1 flex flex-col items-center justify-center gap-3 py-3">
         <div className="w-24 h-24 rounded-full bg-orange-50 border-[3px] border-orange-200 overflow-hidden flex items-center justify-center shrink-0">
@@ -626,32 +790,25 @@ export default function PetProfile({
 
         <div className="text-center min-w-0 w-full">
           <p className="text-lg font-bold text-gray-900 truncate">{pet.name}</p>
-          <p className="text-sm text-gray-500 mt-1">
-            {pet.breed} · {pet.age}
+          <p className="text-sm text-gray-700 font-medium mt-1">
+            {pet.breed} · {pet.age ? `${pet.age}살` : ''}
           </p>
           <p className="text-sm mt-1">
             <span className={pet.gender === 'male' ? 'text-blue-500' : 'text-pink-500'}>
               {pet.gender === 'male' ? '♂ 수컷' : '♀ 암컷'}
             </span>
-            <span className="text-gray-400 ml-1.5">
+            <span className="text-gray-600 ml-1.5">
               · 중성화 {pet.neutered ? '했어요' : '안했어요'}
             </span>
           </p>
           {pet.personality && (
-            <p className="text-sm text-gray-400 mt-1 truncate">"{pet.personality}"</p>
+            <p className="text-sm text-gray-700 mt-1 truncate">"{pet.personality}"</p>
           )}
         </div>
       </div>
 
-      {/* 하단 버튼: 산책일지 / 포인트 */}
+      {/* 하단 버튼: 포인트 / 프로필 편집 */}
       <div className="shrink-0 border-t border-gray-100 pt-3 grid grid-cols-2 gap-1 text-center">
-        <button
-          onClick={() => setShowWalkLog(true)}
-          className="flex flex-col items-center py-2 rounded-xl hover:bg-gray-50 active:bg-orange-50 transition-colors"
-        >
-          <p className="text-xs text-gray-400 mb-1">산책일지</p>
-          <p className="text-sm">📓</p>
-        </button>
         <button
           onClick={() => {
             setTotalPoints(loadPointHistory().reduce((s, h) => s + h.points, 0));
@@ -662,9 +819,18 @@ export default function PetProfile({
           <p className="text-xs text-gray-400 mb-1">포인트</p>
           <p className="text-sm font-bold text-orange-500">{totalPoints.toLocaleString()}P</p>
         </button>
+        <button
+          onClick={() => { setDraft(pet); setEditing(true); }}
+          className="flex flex-col items-center py-2 rounded-xl hover:bg-gray-50 active:bg-orange-50 transition-colors"
+        >
+          <p className="text-xs text-gray-400 mb-1">프로필 편집</p>
+          <svg className="mx-auto" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+          </svg>
+        </button>
       </div>
 
-      {showWalkLog && createPortal(<WalkCalendarModal onClose={() => setShowWalkLog(false)} />, document.body)}
       {showPoints && createPortal(<PointHistoryModal onClose={() => setShowPoints(false)} />, document.body)}
     </div>
   );

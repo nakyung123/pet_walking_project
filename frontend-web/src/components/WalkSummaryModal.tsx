@@ -255,7 +255,7 @@ export default function WalkSummaryModal({ summary, onClose, isPast, dateLabel }
                 {dateLabel ? formatPastDate(dateLabel) : formatDate()}
               </p>
               <p className="text-base font-bold text-gray-900 mt-0.5">
-                {isPast ? '이 날의 산책 기록 🐾' : '오늘도 건실히 땅을 지켜냈다! 🐕'}
+                {isPast ? '이 날의 산책 기록' : '오늘도 건실히 땅을 지켜냈다! 🐕'}
               </p>
             </div>
             <button
@@ -284,18 +284,41 @@ export default function WalkSummaryModal({ summary, onClose, isPast, dateLabel }
             {/* 산책 통계 */}
             <div className="grid grid-cols-3 gap-2">
               {[
-                { label: '산책시간', value: formatTime(summary.seconds), icon: '⏱' },
+                {
+                  label: '산책시간',
+                  value: formatTime(summary.seconds),
+                  icon: (
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10" />
+                      <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                  ),
+                },
                 {
                   label: '거리',
                   value: summary.distance >= 1
                     ? `${summary.distance.toFixed(2)}km`
                     : `${Math.round(summary.distance * 1000)}m`,
-                  icon: '📍',
+                  icon: (
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 2C8.134 2 5 5.134 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.866-3.134-7-7-7z" />
+                      <circle cx="12" cy="9" r="2.5" fill="#F97316" stroke="none" />
+                    </svg>
+                  ),
                 },
-                { label: '칼로리', value: `${calories}kcal`, icon: '🔥' },
+                {
+                  label: '칼로리',
+                  value: `${calories}kcal`,
+                  icon: (
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#F97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 2c0 6-6 8-6 14a6 6 0 0 0 12 0c0-6-6-8-6-14z" fill="#FED7AA" />
+                      <path d="M12 12c0 3-2 4-2 7a2 2 0 0 0 4 0c0-3-2-4-2-7z" fill="#F97316" stroke="none" />
+                    </svg>
+                  ),
+                },
               ].map(({ label, value, icon }) => (
-                <div key={label} className="bg-gray-50 rounded-2xl px-3 py-3 text-center">
-                  <p className="text-lg">{icon}</p>
+                <div key={label} className="bg-gray-50 rounded-2xl px-3 py-3 text-center flex flex-col items-center">
+                  {icon}
                   <p className="text-xs font-bold text-gray-900 mt-1">{value}</p>
                   <p className="text-[10px] text-gray-400 mt-0.5">{label}</p>
                 </div>

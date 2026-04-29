@@ -161,3 +161,31 @@ export interface ReportInput {
   commentId?: string;
   reason?: string;
 }
+
+// ========================
+// 알림 타입
+// ========================
+
+export type NotificationType =
+  | 'tile_stolen'
+  | 'comment_on_post'
+  | 'like_on_post'
+  | 'new_chat_message'
+  | 'decay_warning'
+  | 'mission_complete'
+  | 'badge_earned';
+
+export interface Notification {
+  id: string;
+  userId: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  isRead: boolean;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface MarkingResultV2 extends MarkingResult {
+  prevOccupantUserId: string | null;
+}

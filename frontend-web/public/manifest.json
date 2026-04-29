@@ -1,6 +1,6 @@
 {
-  "name": "펫국지",
-  "short_name": "펫국지",
+  "name": "퍼피랜드",
+  "short_name": "퍼피랜드",
   "description": "반려견과 함께 동네를 점령하세요",
   "start_url": "/map",
   "display": "standalone",

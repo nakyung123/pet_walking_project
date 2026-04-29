@@ -13,11 +13,12 @@ if (!admin.apps.length) {
         privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
       }),
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
     });
-    console.log('[Firebase] Admin SDK 초기화 완료');
+    console.log('[Firebase] Admin SDK 초기화 완료'); // logger 초기화 전 시점 — console 유지
   } else {
     // 개발 환경에서 Firebase 키가 없을 때 — 인증 미들웨어가 우회 모드로 동작
-    console.warn('[Firebase] FIREBASE_PROJECT_ID 미설정 — 개발 모드로 실행 (인증 비활성화)');
+    console.warn('[Firebase] FIREBASE_PROJECT_ID 미설정 — 개발 모드로 실행 (인증 비활성화)'); // logger 초기화 전 — console 유지
   }
 }
 

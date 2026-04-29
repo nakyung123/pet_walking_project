@@ -55,17 +55,26 @@ export async function postMarking(
 }
 
 // 세션 시작
-export async function startSession(userId: string, idToken: string) {
+export async function startSession(idToken: string) {
   return request<{ sessionId: string }>(
     '/api/sessions',
-    { method: 'POST', body: JSON.stringify({ userId }) },
+    { method: 'POST', body: JSON.stringify({}) },
+    idToken,
+  );
+}
+
+// 세션 종료 + 거리 저장
+export async function endSession(sessionId: string, distanceKm: number, idToken: string) {
+  return request<{ sessionId: string; distanceKm: number }>(
+    `/api/sessions/${sessionId}`,
+    { method: 'PATCH', body: JSON.stringify({ distanceKm }) },
     idToken,
   );
 }
 
 // 내 점수 조회
-export async function getScore(_userId: string, idToken: string) {
-  return request<{ totalScore: number }>(`/api/users/me/score`, undefined, idToken);
+export async function getScore(idToken: string) {
+  return request<{ totalScore: number }>('/api/users/me/score', undefined, idToken);
 }
 
 // 점령 타일 전체 조회 (초기 로드용)
@@ -98,6 +107,11 @@ export async function updateMyProfile(
 // 리더보드 조회
 export async function getLeaderboard(idToken: string) {
   return request<LeaderboardData>('/api/leaderboard', undefined, idToken);
+}
+
+// 주변 랭킹 조회 (반경 기본 3km)
+export async function getNearbyLeaderboard(lat: number, lng: number, idToken: string, radiusKm = 3) {
+  return request<LeaderboardData>(`/api/leaderboard/nearby?lat=${lat}&lng=${lng}&radius=${radiusKm}`, undefined, idToken);
 }
 
 export interface UserProfile {
@@ -276,4 +290,52 @@ export interface LeaderboardEntry {
 export interface LeaderboardData {
   byTile: LeaderboardEntry[];
   byScore: LeaderboardEntry[];
+}
+
+// ========================
+// 알림
+// ========================
+
+export type NotificationType =
+  | 'tile_stolen'
+  | 'comment_on_post'
+  | 'like_on_post'
+  | 'new_chat_message'
+  | 'decay_warning'
+  | 'mission_complete'
+  | 'badge_earned';
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  isRead: boolean;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export async function getNotifications(idToken: string) {
+  return request<{ notifications: AppNotification[]; unreadCount: number }>(
+    '/api/notifications',
+    undefined,
+    idToken,
+  );
+}
+
+export async function markAllNotificationsRead(idToken: string) {
+  return request<null>(
+    '/api/notifications/read',
+    { method: 'PATCH' },
+    idToken,
+  );
+}
+
+export async function markNotificationRead(id: string, idToken: string) {
+  return request<null>(
+    `/api/notifications/${id}/read`,
+    { method: 'PATCH' },
+    idToken,
+  );
 }

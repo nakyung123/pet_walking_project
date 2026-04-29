@@ -75,7 +75,7 @@ export default function TileInfoCard({
           }}
         >
           <div className="flex items-center gap-2">
-            <span className="text-base">{isUnclaimed ? '📍' : isMyTile ? '🐾' : '⚔️'}</span>
+            <span className="text-base">{isUnclaimed ? '📍' : isMyTile ? '🏠' : '⚔️'}</span>
             <span className="text-white font-bold text-sm">
               {isUnclaimed ? '미점령 구역' : isMyTile ? '내 영역' : `${ownerName}의 영역`}
             </span>

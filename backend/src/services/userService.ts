@@ -1,4 +1,5 @@
 import pool from '../db/pool';
+import logger from '../utils/logger';
 import { User, LeaderboardEntry, LeaderboardData } from '../types';
 
 /**
@@ -26,7 +27,7 @@ export const upsertUser = async (
   );
 
   const row = result.rows[0];
-  console.log('[userService] upsert 완료:', row.user_id);
+  logger.debug('[userService] upsert 완료: %s', row.user_id);
 
   return {
     userId: row.user_id,
@@ -40,28 +41,62 @@ const LEADERBOARD_QUERY = `
   SELECT
     u.user_id,
     u.display_name,
-    COUNT(t.tile_id)                     AS tile_count,
-    COALESCE(SUM(t.occupancy_score), 0)  AS total_score
+    COUNT(t.tile_id)::INTEGER                    AS tile_count,
+    COALESCE(SUM(t.occupancy_score), 0)::INTEGER AS total_score
   FROM users u
   LEFT JOIN tiles t ON t.occupant_user_id = u.user_id
   GROUP BY u.user_id, u.display_name
 `;
 
-const toEntry = (row: { user_id: string; display_name: string; tile_count: string; total_score: string }, i: number): LeaderboardEntry => ({
+const toEntry = (row: { user_id: string; display_name: string; tile_count: number; total_score: number }, i: number): LeaderboardEntry => ({
   rank: i + 1,
   userId: row.user_id,
   displayName: row.display_name,
-  tileCount: parseInt(row.tile_count, 10),
-  totalScore: parseInt(row.total_score, 10),
+  tileCount: row.tile_count,
+  totalScore: row.total_score,
 });
+
+/** 반경 내 활동 유저 기준 타일 수 / 점수 상위 10명 조회 (반경: km) */
+export const getNearbyLeaderboard = async (lat: number, lng: number, radiusKm: number): Promise<LeaderboardData> => {
+  const NEARBY_QUERY = `
+    SELECT
+      u.user_id,
+      u.display_name,
+      COUNT(t.tile_id)::INTEGER                    AS tile_count,
+      COALESCE(SUM(t.occupancy_score), 0)::INTEGER AS total_score
+    FROM users u
+    JOIN tiles t ON t.occupant_user_id = u.user_id
+    WHERE ST_DWithin(
+      ST_SetSRID(ST_MakePoint(t.center_lng, t.center_lat), 4326)::geography,
+      ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
+      $3
+    )
+    GROUP BY u.user_id, u.display_name
+  `;
+  const radiusMeters = radiusKm * 1000;
+  const [byTileRes, byScoreRes] = await Promise.all([
+    pool.query<{ user_id: string; display_name: string; tile_count: number; total_score: number }>(
+      `${NEARBY_QUERY} ORDER BY tile_count DESC, total_score DESC LIMIT 10`,
+      [lng, lat, radiusMeters]
+    ),
+    pool.query<{ user_id: string; display_name: string; tile_count: number; total_score: number }>(
+      `${NEARBY_QUERY} ORDER BY total_score DESC, tile_count DESC LIMIT 10`,
+      [lng, lat, radiusMeters]
+    ),
+  ]);
+  return {
+    byTile:  byTileRes.rows.map(toEntry),
+    byScore: byScoreRes.rows.map(toEntry),
+  };
+};
 
 /** 타일 수 / 점수 각각 상위 10명 조회 */
 export const getLeaderboard = async (): Promise<LeaderboardData> => {
   const [byTileRes, byScoreRes] = await Promise.all([
-    pool.query<{ user_id: string; display_name: string; tile_count: string; total_score: string }>(
+    pool.query<{ user_id: string; display_name: string; tile_count: number; total_score: number }>(
       `${LEADERBOARD_QUERY} ORDER BY tile_count DESC, total_score DESC LIMIT 10`
     ),
-    pool.query<{ user_id: string; display_name: string; tile_count: string; total_score: string }>(
+    pool.query<{ user_id: string; display_name: string; tile_count: number; total_score: number }>(
       `${LEADERBOARD_QUERY} ORDER BY total_score DESC, tile_count DESC LIMIT 10`
     ),
   ]);

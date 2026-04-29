@@ -2,8 +2,26 @@
 
 import { useState, useRef } from 'react';
 import { createPost, PostCategory } from '@/services/api';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { app } from '@/lib/firebase';
+
+async function compressToBase64(file: File, maxWidth = 1024, quality = 0.8): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const canvas = document.createElement('canvas');
+      const scale = Math.min(1, maxWidth / img.width);
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { reject(new Error('canvas 오류')); return; }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
 
 interface Props {
   idToken: string;
@@ -12,7 +30,7 @@ interface Props {
 }
 
 const CATEGORIES: { value: PostCategory; label: string }[] = [
-  { value: 'walk_log', label: '🐾 산책일지' },
+  { value: 'walk_log', label: '산책일지' },
   { value: 'brag',     label: '🌟 자랑하기' },
   { value: 'other',    label: '💬 기타'     },
 ];
@@ -24,6 +42,7 @@ export default function PostCreateModal({ idToken, onClose, onCreated }: Props) 
   const [images, setImages]     = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = (files: FileList | null) => {
@@ -44,18 +63,14 @@ export default function PostCreateModal({ idToken, onClose, onCreated }: Props) 
   const handleSubmit = async () => {
     if (!title.trim() || !content.trim()) return;
     setSubmitting(true);
+    setUploadError(null);
     try {
-      const storage = getStorage(app);
-      const imageUrls: string[] = [];
-      for (const file of images) {
-        const storageRef = ref(storage, `community/${Date.now()}_${file.name}`);
-        await uploadBytes(storageRef, file);
-        imageUrls.push(await getDownloadURL(storageRef));
-      }
+      const imageUrls = await Promise.all(images.map((f) => compressToBase64(f)));
       await createPost({ category, title: title.trim(), content: content.trim(), imageUrls }, idToken);
       onCreated();
     } catch (e) {
       console.error('[PostCreate] 작성 실패:', e);
+      setUploadError('게시글 작성에 실패했습니다. 다시 시도해주세요.');
     } finally {
       setSubmitting(false);
     }
@@ -133,6 +148,9 @@ export default function PostCreateModal({ idToken, onClose, onCreated }: Props) 
 
         {/* 제출 버튼 */}
         <div className="px-5 py-4 border-t border-gray-100">
+          {uploadError && (
+            <p className="text-red-500 text-xs text-center mb-2">{uploadError}</p>
+          )}
           <button
             onClick={handleSubmit}
             disabled={submitting || !title.trim() || !content.trim()}

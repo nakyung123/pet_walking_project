@@ -6,6 +6,7 @@ import sessionRouter from './session';
 import leaderboardRouter from './leaderboard';
 import chatRouter from './chat';
 import communityRouter from './community';
+import notificationsRouter from './notifications';
 
 const router = Router();
 
@@ -16,5 +17,6 @@ router.use('/sessions', sessionRouter);
 router.use('/leaderboard', leaderboardRouter);
 router.use('/chat', chatRouter);
 router.use('/community', communityRouter);
+router.use('/notifications', notificationsRouter);
 
 export default router;
