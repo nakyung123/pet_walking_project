@@ -9,10 +9,11 @@ export const errorHandler = (
   _next: NextFunction
 ): void => {
   logger.error(`[ErrorHandler] ${err.message} | stack: ${err.stack}`);
+  const isProd = process.env.NODE_ENV === 'production';
   const body: ApiResponse<null> = {
     success: false,
     data: null,
-    error: err.message || '서버 내부 오류',
+    error: isProd ? '서버 내부 오류' : (err.message || '서버 내부 오류'),
   };
   res.status(500).json(body);
 };

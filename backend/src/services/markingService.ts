@@ -1,6 +1,6 @@
 import pool from '../db/pool';
 import logger from '../utils/logger';
-import { MarkingRequestV2, MarkingResult, MarkingResultV2 } from '../types';
+import { MarkingRequestV2, MarkingResultV2 } from '../types';
 import { getTileInfo } from '../utils/tileCalc';
 
 /** 30초당 1점 */
