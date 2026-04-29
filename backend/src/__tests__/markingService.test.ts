@@ -1,5 +1,6 @@
 import { markingService } from '../services/markingService';
 import pool from '../db/pool';
+import { getTileInfo } from '../utils/tileCalc';
 
 jest.mock('../db/pool', () => ({ connect: jest.fn() }));
 
@@ -20,14 +21,16 @@ const baseReq = {
   enteredAt: new Date(Date.now() - 60_000).toISOString(),
 };
 
+// getTileInfo로 실제 tileId 계산 (PostGIS 제거 후 TypeScript 계산 사용)
+const { tileId: expectedTileId } = getTileInfo(baseReq.lng, baseReq.lat);
+
 const setupMocks = (opts: { staySeconds?: number; prevOccupant?: string | null; finalOccupant?: string; score?: number } = {}) => {
   const { staySeconds = 60, prevOccupant = null, finalOccupant = 'user-001', score = 12 } = opts;
   mockClient.query
     .mockResolvedValueOnce(undefined) // BEGIN
-    .mockResolvedValueOnce({ rows: [{ tile_id: '100_200', center_lat: 37.479, center_lng: 126.910 }] }) // tileRes
-    .mockResolvedValueOnce(undefined) // upsert
-    .mockResolvedValueOnce({ rows: [{ stay_seconds: staySeconds }] }) // tile_visits
-    .mockResolvedValueOnce({ rows: [{ occupant_user_id: prevOccupant }] }) // prevRes
+    .mockResolvedValueOnce(undefined) // INSERT INTO tiles (upsert, DO NOTHING)
+    .mockResolvedValueOnce({ rows: [{ stay_seconds: staySeconds }] }) // tile_visits INSERT RETURNING
+    .mockResolvedValueOnce({ rows: [{ occupant_user_id: prevOccupant }] }) // prevRes SELECT
     .mockResolvedValueOnce({ rows: [{ occupancy_score: score, occupant_user_id: finalOccupant }] }) // updateRes
     .mockResolvedValueOnce(undefined); // COMMIT
 };
@@ -37,7 +40,7 @@ describe('markingService', () => {
     setupMocks();
     const result = await markingService(baseReq);
 
-    expect(result.tileId).toBe('100_200');
+    expect(result.tileId).toBe(expectedTileId);
     expect(result.newScore).toBe(12);
     expect(result.isOccupied).toBe(true);
     expect(result.prevOccupantUserId).toBeNull();
