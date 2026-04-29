@@ -8,11 +8,11 @@ export const errorHandler = (
   res: Response,
   _next: NextFunction
 ): void => {
-  logger.error('[ErrorHandler] %s', err.message, { stack: err.stack });
+  logger.error(`[ErrorHandler] ${err.message} | stack: ${err.stack}`);
   const body: ApiResponse<null> = {
     success: false,
     data: null,
-    error: process.env.NODE_ENV === 'production' ? '서버 내부 오류' : (err.message || '서버 내부 오류'),
+    error: err.message || '서버 내부 오류',
   };
   res.status(500).json(body);
 };
