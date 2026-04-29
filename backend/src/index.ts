@@ -4,6 +4,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import router from './routes';
 import { errorHandler } from './middlewares/errorHandler';
+import { runMigrations } from './db/migrate';
 import { startDecayJob } from './jobs/decayJob';
 import { initSocketIO } from './socket';
 import logger from './utils/logger';
@@ -50,10 +51,17 @@ if (process.env.NODE_ENV !== 'test') {
 
   initSocketIO(httpServer);
 
-  httpServer.listen(PORT, () => {
-    logger.info(`Pet Territory 서버 실행 중: http://localhost:${PORT}`);
-    startDecayJob();
-  });
+  runMigrations()
+    .then(() => {
+      httpServer.listen(PORT, () => {
+        logger.info(`Pet Territory 서버 실행 중: http://localhost:${PORT}`);
+        startDecayJob();
+      });
+    })
+    .catch((err) => {
+      logger.error(`[Migration] 실패: ${err.message}`);
+      process.exit(1);
+    });
 }
 
 export default app;
