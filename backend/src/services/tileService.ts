@@ -1,10 +1,10 @@
 import pool from '../db/pool';
 import logger from '../utils/logger';
 import { Tile } from '../types';
+import { getTileInfo } from '../utils/tileCalc';
 
 /**
  * 뷰포트 범위 내 타일 목록 조회
- * PostGIS ST_MakeEnvelope 사용
  */
 export const getTilesByViewport = async (
   minLat: number,
@@ -22,11 +22,9 @@ export const getTilesByViewport = async (
   }>(
     `SELECT tile_id, center_lat, center_lng, occupant_user_id, occupancy_score, last_marked_at
      FROM tiles
-     WHERE ST_Within(
-       ST_SetSRID(ST_MakePoint(center_lng, center_lat), 4326),
-       ST_MakeEnvelope($1, $2, $3, $4, 4326)
-     )`,
-    [minLng, minLat, maxLng, maxLat]
+     WHERE center_lat BETWEEN $1 AND $2
+       AND center_lng BETWEEN $3 AND $4`,
+    [minLat, maxLat, minLng, maxLng]
   );
 
   logger.debug('[tileService] 조회 범위: %o', { minLat, maxLat, minLng, maxLng });
@@ -40,20 +38,15 @@ export const getTilesByViewport = async (
   }));
 };
 
-/** 현재 위치의 타일 점유 초기화 (tileId는 PostGIS로 계산) */
+/** 현재 위치의 타일 점유 초기화 */
 export const clearTileAtPosition = async (lat: number, lng: number): Promise<string | null> => {
+  const { tileId } = getTileInfo(lng, lat);
   const res = await pool.query<{ tile_id: string }>(
-    `WITH mercator AS (
-      SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 3857) AS pt
-    ),
-    grid AS (
-      SELECT floor(ST_X(pt) / 50) AS gx, floor(ST_Y(pt) / 50) AS gy FROM mercator
-    )
-    UPDATE tiles
-    SET occupant_user_id = NULL, occupancy_score = 0, last_marked_at = NULL, updated_at = NOW()
-    WHERE tile_id = (SELECT gx::text || '_' || gy::text FROM grid)
-    RETURNING tile_id`,
-    [lng, lat]
+    `UPDATE tiles
+     SET occupant_user_id = NULL, occupancy_score = 0, last_marked_at = NULL, updated_at = NOW()
+     WHERE tile_id = $1
+     RETURNING tile_id`,
+    [tileId]
   );
   return res.rows[0]?.tile_id ?? null;
 };

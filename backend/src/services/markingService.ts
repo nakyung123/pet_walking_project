@@ -1,6 +1,7 @@
 import pool from '../db/pool';
 import logger from '../utils/logger';
 import { MarkingRequestV2, MarkingResult, MarkingResultV2 } from '../types';
+import { getTileInfo } from '../utils/tileCalc';
 
 /** 30초당 1점 */
 const STAY_WEIGHT = 1 / 30;
@@ -21,35 +22,8 @@ export const markingService = async (req: MarkingRequestV2): Promise<MarkingResu
   try {
     await client.query('BEGIN');
 
-    // 1. PostGIS: 위경도 → 타일ID + 타일 중심 좌표 계산
-    const tileRes = await client.query<{
-      tile_id: string;
-      center_lat: number;
-      center_lng: number;
-    }>(
-      `WITH mercator AS (
-        SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1, $2), 4326), 3857) AS pt
-      ),
-      grid AS (
-        SELECT
-          floor(ST_X(pt) / 50) AS gx,
-          floor(ST_Y(pt) / 50) AS gy
-        FROM mercator
-      )
-      SELECT
-        gx::text || '_' || gy::text AS tile_id,
-        ST_Y(ST_Transform(
-          ST_SetSRID(ST_MakePoint((gx + 0.5) * 50, (gy + 0.5) * 50), 3857),
-          4326
-        )) AS center_lat,
-        ST_X(ST_Transform(
-          ST_SetSRID(ST_MakePoint((gx + 0.5) * 50, (gy + 0.5) * 50), 3857),
-          4326
-        )) AS center_lng
-      FROM grid`,
-      [req.lng, req.lat]
-    );
-    const { tile_id: tileId, center_lat: centerLat, center_lng: centerLng } = tileRes.rows[0];
+    // 1. 위경도 → 타일ID + 타일 중심 좌표 계산
+    const { tileId, centerLat, centerLng } = getTileInfo(req.lng, req.lat);
     logger.debug('[markingService] tileId:', tileId, '| 중심:', { centerLat, centerLng });
 
     // 2. 타일 upsert (tiles 테이블에 없으면 생성)

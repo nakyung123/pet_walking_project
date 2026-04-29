@@ -4,8 +4,6 @@ import logger from '../utils/logger';
 export async function runMigrations(): Promise<void> {
   logger.info('[Migration] 마이그레이션 시작');
 
-  await pool.query(`CREATE EXTENSION IF NOT EXISTS postgis`);
-
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       user_id      TEXT PRIMARY KEY,
@@ -32,10 +30,8 @@ export async function runMigrations(): Promise<void> {
     )
   `);
 
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_tiles_location
-      ON tiles USING GIST (ST_SetSRID(ST_MakePoint(center_lng, center_lat), 4326))
-  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tiles_lat ON tiles (center_lat)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tiles_lng ON tiles (center_lng)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tiles_occupant ON tiles (occupant_user_id)`);
 
   await pool.query(`
