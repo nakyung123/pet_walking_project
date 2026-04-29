@@ -1,20 +1,25 @@
-import { Router, Request } from 'express';
+import { Router } from 'express';
 import pool from '../db/pool';
-import { authMiddleware } from '../middlewares/authMiddleware';
+import { authMiddleware, AuthRequest } from '../middlewares/authMiddleware';
 import { validate } from '../middlewares/validate';
 import { sessionEndSchema } from '../schemas';
-
-type AuthRequest = Request & { uid: string };
 
 const router = Router();
 
 // POST /api/sessions — 산책 세션 시작 (uid는 토큰에서 추출)
 router.post('/', authMiddleware, async (req, res, next) => {
   const userId = (req as AuthRequest).uid;
+  const displayName = (req as AuthRequest).displayName;
   try {
+    await pool.query(
+      `INSERT INTO users (user_id, display_name, dog_name)
+       VALUES ($1, $2, '')
+       ON CONFLICT (user_id) DO NOTHING`,
+      [userId, displayName],
+    );
     const result = await pool.query<{ session_id: string }>(
       `INSERT INTO walking_sessions (user_id) VALUES ($1) RETURNING session_id`,
-      [userId]
+      [userId],
     );
     res.json({ success: true, data: { sessionId: result.rows[0].session_id }, error: null });
   } catch (err) {
