@@ -23,9 +23,6 @@ const ALL_RULES = [
   { icon: '⏳', title: '감쇄 시스템', desc: '24시간 동안 마킹이 없으면 매일 자정에 점수가 10%씩 줄어듭니다. 점수가 0이 되면 점유가 해제돼요. 꾸준히 산책하세요!' },
   { icon: '🚗', title: '속도 제한', desc: '이동 속도가 15km/h를 넘으면 마킹이 자동 차단됩니다. 뛰거나 탈것을 타면 적용되지 않아요.' },
   { icon: '📍', title: '타일 프리뷰', desc: '산책 중 내 위치의 타일이 지도에 노란색 점선으로 미리 표시됩니다.' },
-  { icon: '📊', title: '랭킹', desc: '' },
-  { icon: '💬', title: '커뮤니티 & 채팅', desc: '' },
-  { icon: '🔔', title: '알림', desc: '타일 빼앗김, 게시글 댓글·좋아요, 새 메시지, 감쇄 경고 알림을 받아요. 상단 종 아이콘에서 확인하세요.' },
 ];
 
 export default function OnboardingGuide({ hints = [] }: { hints?: HintItem[] }) {
