@@ -146,6 +146,7 @@ export interface ConversationSummary {
   otherPhotoUrl: string | null;
   lastMessage: string | null;
   lastMessageAt: string | null;
+  unreadCount: number;
 }
 
 export async function startConversation(otherUserId: string, idToken: string) {

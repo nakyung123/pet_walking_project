@@ -938,7 +938,6 @@ export default function MapPage() {
           idToken={idToken}
           initialChatUser={pendingChatUser ?? undefined}
           onClose={() => { setShowChatList(false); setPendingChatUser(null); }}
-          unreadCount={chatUnreadCount}
         />
       )}
 

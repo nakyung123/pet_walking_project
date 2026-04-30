@@ -18,6 +18,7 @@ export interface ConversationSummary {
   otherPhotoUrl: string | null;
   lastMessage: string | null;
   lastMessageAt: string | null;
+  unreadCount: number;
 }
 
 function makeConvId(a: string, b: string): string {
@@ -47,6 +48,7 @@ export async function getConversations(myId: string): Promise<ConversationSummar
     other_photo_url: string | null;
     last_message: string | null;
     last_message_at: string | null;
+    unread_count: string;
   }>(
     `SELECT
        c.id,
@@ -57,7 +59,14 @@ export async function getConversations(myId: string): Promise<ConversationSummar
        u.dog_age        AS other_dog_age,
        u.photo_url      AS other_photo_url,
        m.text           AS last_message,
-       m.created_at     AS last_message_at
+       m.created_at     AS last_message_at,
+       COALESCE((
+         SELECT COUNT(*) FROM notifications n
+         WHERE n.user_id = $1
+           AND n.type = 'new_chat_message'
+           AND n.is_read = false
+           AND n.metadata->>'conversationId' = c.id
+       ), 0) AS unread_count
      FROM conversations c
      JOIN users u ON u.user_id = CASE WHEN c.user_id_1 = $1 THEN c.user_id_2 ELSE c.user_id_1 END
      LEFT JOIN LATERAL (
@@ -79,6 +88,7 @@ export async function getConversations(myId: string): Promise<ConversationSummar
     otherPhotoUrl: r.other_photo_url,
     lastMessage: r.last_message,
     lastMessageAt: r.last_message_at,
+    unreadCount: parseInt(r.unread_count),
   }));
 }
 
