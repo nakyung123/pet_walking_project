@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   getPostDetail, getComments, toggleLike, createComment,
   deleteComment, deletePost, reportContent, Post, Comment,
 } from '@/services/api';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface Props {
   postId: string;
@@ -225,6 +227,8 @@ export default function PostDetailModal({ postId, idToken, currentUserId, onClos
   const [replyTo, setReplyTo]   = useState<{ id: string; name: string } | null>(null);
   const [imageIdx, setImageIdx] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [pendingPostDelete, setPendingPostDelete] = useState(false);
+  const [pendingCommentId, setPendingCommentId] = useState<string | null>(null);
 
   const loadPost = useCallback(async () => {
     const [postRes, commentsRes] = await Promise.all([
@@ -264,15 +268,27 @@ export default function PostDetailModal({ postId, idToken, currentUserId, onClos
     }
   };
 
-  const handleDeleteComment = async (commentId: string) => {
+  const handleDeleteComment = (commentId: string) => {
+    setPendingCommentId(commentId);
+  };
+
+  const confirmDeleteComment = async () => {
+    if (!pendingCommentId) return;
+    const id = pendingCommentId;
+    setPendingCommentId(null);
     const prevCount = post?.commentCount ?? 0;
-    await deleteComment(postId, commentId, idToken);
+    await deleteComment(postId, id, idToken);
     await loadPost();
     onPostUpdate?.(postId, { commentCount: Math.max(0, prevCount - 1) });
   };
 
-  const handleDeletePost = async () => {
+  const handleDeletePost = () => {
     if (!post || post.userId !== currentUserId) return;
+    setPendingPostDelete(true);
+  };
+
+  const confirmDeletePost = async () => {
+    setPendingPostDelete(false);
     await deletePost(postId, idToken);
     onDeleted();
   };
@@ -305,10 +321,34 @@ export default function PostDetailModal({ postId, idToken, currentUserId, onClos
     onKeyDown: handleKeyDown,
   };
 
+  const confirmDialogs = (
+    <>
+      {pendingPostDelete && createPortal(
+        <ConfirmDialog
+          message="게시글을 삭제하시겠습니까?"
+          confirmLabel="삭제"
+          onConfirm={confirmDeletePost}
+          onCancel={() => setPendingPostDelete(false)}
+        />,
+        document.body,
+      )}
+      {pendingCommentId && createPortal(
+        <ConfirmDialog
+          message="댓글을 삭제하시겠습니까?"
+          confirmLabel="삭제"
+          onConfirm={confirmDeleteComment}
+          onCancel={() => setPendingCommentId(null)}
+        />,
+        document.body,
+      )}
+    </>
+  );
+
   if (inline) {
     return (
       <div className="flex flex-col h-full bg-white rounded-3xl overflow-hidden">
         <PostDetailContent {...contentProps} />
+        {confirmDialogs}
       </div>
     );
   }
@@ -319,6 +359,7 @@ export default function PostDetailModal({ postId, idToken, currentUserId, onClos
       <div className="relative w-full max-w-lg bg-white rounded-t-3xl shadow-2xl flex flex-col max-h-[92vh]">
         <PostDetailContent {...contentProps} />
       </div>
+      {confirmDialogs}
     </div>
   );
 }

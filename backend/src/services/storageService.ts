@@ -40,15 +40,19 @@ export async function uploadBase64Image(
   const bucket = admin.storage().bucket(BUCKET);
   const file = bucket.file(fileName);
 
-  await file.save(buffer, {
-    metadata: {
-      contentType: mimeType,
-      cacheControl: 'public, max-age=31536000',
-    },
-  });
-
-  await file.makePublic();
-  const publicUrl = `https://storage.googleapis.com/${BUCKET}/${fileName}`;
-  logger.debug('[Storage] 업로드 완료: %s', publicUrl);
-  return publicUrl;
+  try {
+    await file.save(buffer, {
+      metadata: {
+        contentType: mimeType,
+        cacheControl: 'public, max-age=31536000',
+      },
+    });
+    await file.makePublic();
+    const publicUrl = `https://storage.googleapis.com/${BUCKET}/${fileName}`;
+    logger.debug('[Storage] 업로드 완료: %s', publicUrl);
+    return publicUrl;
+  } catch (uploadErr) {
+    logger.warn('[Storage] Firebase Storage 업로드 실패, base64 원본 사용:', uploadErr);
+    return base64Data;
+  }
 }

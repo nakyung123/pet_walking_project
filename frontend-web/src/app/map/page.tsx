@@ -23,6 +23,8 @@ import { ChatUser } from '@/components/ChatRoom';
 import TileInfoCard from '@/components/TileInfoCard';
 import { WalkCalendarModal } from '@/components/PetProfile';
 import LocationPermissionPrompt from '@/components/LocationPermissionPrompt';
+import DogSetupScreen from '@/components/DogSetupScreen';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 type Bounds = { minLat: number; maxLat: number; minLng: number; maxLng: number };
 type TileFilter = 'all' | 'mine' | 'rivals';
@@ -170,6 +172,21 @@ export default function MapPage() {
     try { sessionStorage.setItem('locationPromptSeen', '1'); } catch {}
     setShowLocationPrompt(false);
   };
+
+  // 강아지 정보 입력 화면 (최초 1회, petProfiles 없을 때)
+  const [showDogSetup, setShowDogSetup] = useState(() => {
+    try {
+      const saved = localStorage.getItem('petProfiles');
+      const pets = saved ? JSON.parse(saved) : [];
+      return !Array.isArray(pets) || pets.length === 0;
+    } catch {
+      return true;
+    }
+  });
+
+  // 삭제/로그아웃 확인 다이얼로그
+  const [pendingLogout, setPendingLogout] = useState(false);
+  const [pendingTileDelete, setPendingTileDelete] = useState(false);
 
   const handleAllowLocation = () => {
     navigator.geolocation.getCurrentPosition(() => {}, () => {});
@@ -524,7 +541,13 @@ export default function MapPage() {
   }, [idToken]);
 
   // 타일 삭제 핸들러
-  const handleDelete = async () => {
+  const handleDelete = () => {
+    if (!idToken || !effectivePosition) return;
+    setPendingTileDelete(true);
+  };
+
+  const confirmTileDelete = async () => {
+    setPendingTileDelete(false);
     if (!idToken || !effectivePosition) return;
     setDeleting(true);
     try {
@@ -557,6 +580,22 @@ export default function MapPage() {
       <LocationPermissionPrompt
         onAllow={handleAllowLocation}
         onDeny={dismissLocationPrompt}
+      />
+    );
+  }
+
+  // 강아지 정보 입력 화면 (최초 1회)
+  if (showDogSetup) {
+    return (
+      <DogSetupScreen
+        onDone={(pet) => {
+          const newPets = [pet];
+          localStorage.setItem('petProfiles', JSON.stringify(newPets));
+          localStorage.setItem('activePetIdx', '0');
+          setPetList(newPets);
+          setActivePetIdx(0);
+          setShowDogSetup(false);
+        }}
       />
     );
   }
@@ -962,6 +1001,26 @@ export default function MapPage() {
       {/* 산책일지 모달 */}
       {showWalkLog && <WalkCalendarModal onClose={() => setShowWalkLog(false)} />}
 
+      {/* 로그아웃 확인 */}
+      {pendingLogout && (
+        <ConfirmDialog
+          message="로그아웃 하시겠습니까?"
+          confirmLabel="로그아웃"
+          onConfirm={() => { setPendingLogout(false); logout(); }}
+          onCancel={() => setPendingLogout(false)}
+        />
+      )}
+
+      {/* 타일 삭제 확인 */}
+      {pendingTileDelete && (
+        <ConfirmDialog
+          message="현재 위치의 타일을 삭제하시겠습니까?"
+          confirmLabel="삭제"
+          onConfirm={confirmTileDelete}
+          onCancel={() => setPendingTileDelete(false)}
+        />
+      )}
+
       {/* 설정 모달 */}
       {showSettings && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
@@ -987,7 +1046,7 @@ export default function MapPage() {
                       <span className="text-gray-400 text-xs">›</span>
                     </button>
                   ))}
-                  <button onClick={() => { setShowSettings(false); logout(); }}
+                  <button onClick={() => { setShowSettings(false); setPendingLogout(true); }}
                     className="w-full h-12 rounded-2xl bg-gray-50 flex items-center px-4 gap-3 text-sm font-semibold text-gray-700 hover:bg-gray-100 transition-colors">
                     <span className="text-base">🚪</span>
                     <span className="flex-1 text-left">로그아웃</span>

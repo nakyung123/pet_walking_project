@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { updateMyProfile } from '@/services/api';
 import WalkSummaryModal from '@/components/WalkSummaryModal';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import type { WalkSummaryData } from '@/components/WalkSummaryModal';
 
 interface WalkRecord extends WalkSummaryData {
@@ -398,6 +399,7 @@ export default function PetProfile({
   const [addDraft, setAddDraft] = useState<PetData>(DEFAULT_PET);
   const [showPoints, setShowPoints] = useState(false);
   const [totalPoints, setTotalPoints] = useState(0);
+  const [pendingDelete, setPendingDelete] = useState(false);
 
   useEffect(() => {
     setTotalPoints(loadPointHistory().reduce((s, h) => s + h.points, 0));
@@ -441,6 +443,11 @@ export default function PetProfile({
 
   const handleDelete = () => {
     if (pets.length <= 1) return;
+    setPendingDelete(true);
+  };
+
+  const confirmDelete = () => {
+    setPendingDelete(false);
     const newPets = pets.filter((_, i) => i !== activePetIdx);
     const newIdx = Math.max(0, activePetIdx - 1);
     setPets(newPets);
@@ -832,6 +839,16 @@ export default function PetProfile({
       </div>
 
       {showPoints && createPortal(<PointHistoryModal onClose={() => setShowPoints(false)} />, document.body)}
+
+      {pendingDelete && createPortal(
+        <ConfirmDialog
+          message={`${pet.name}을(를) 삭제하시겠습니까?`}
+          confirmLabel="삭제"
+          onConfirm={confirmDelete}
+          onCancel={() => setPendingDelete(false)}
+        />,
+        document.body,
+      )}
     </div>
   );
 }

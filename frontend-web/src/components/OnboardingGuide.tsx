@@ -11,20 +11,20 @@ const HINT_STYLE: Record<HintItem['variant'], string> = {
 };
 
 const CORE_RULES = [
-  { step: '01', icon: '🦮', title: '산책 시작 & 마킹', desc: '"산책 시작하기"를 누른 뒤 현재 위치에서 "마킹하기"를 눌러 타일을 점유하세요. 타일을 많이 모을수록 랭킹이 올라갑니다.' },
+  { step: '01', icon: '🦮', title: '산책 시작 & 자동 마킹', desc: '"산책 시작하기"를 누른 뒤 새로운 타일로 이동하면 자동으로 마킹됩니다. 많이 걸을수록 랭킹이 올라갑니다.' },
   { step: '02', icon: '🏆', title: '점유 & 경쟁', desc: '마킹 점수가 가장 높은 사람이 그 타일의 주인. 빼앗기면 알림이 와요!' },
   { step: '03', icon: '🚗', title: '속도 제한', desc: '15km/h 초과 시 마킹 자동 차단. 뛰거나 차를 타면 안 돼요.' },
 ];
 
 const ALL_RULES = [
   { icon: '🗺️', title: '타일이란?', desc: '지도를 50m × 50m 격자로 나눈 구역이에요. 각 타일은 한 명만 점유할 수 있고, 타일 색이 곧 주인의 색입니다.' },
-  { icon: '🦮', title: '산책 시작 & 마킹', desc: '"산책 시작하기"를 눌러 세션을 시작하세요. 현재 위치의 타일에서 "마킹하기"를 누르면 체류시간 + 마킹 보너스로 점수가 쌓입니다.' },
+  { icon: '🦮', title: '산책 시작 & 자동 마킹', desc: '"산책 시작하기"를 눌러 세션을 시작하세요. 새로운 타일로 이동하면 자동으로 마킹되어 체류시간 + 보너스 점수가 쌓입니다.' },
   { icon: '🏆', title: '점유 & 경쟁', desc: '내 타일은 주황색, 경쟁자 타일은 다른 색으로 표시됩니다. 상대방이 더 많이 마킹하면 타일을 빼앗겨요. 타일을 클릭하면 누가 점유 중인지 확인할 수 있어요.' },
   { icon: '⏳', title: '감쇄 시스템', desc: '24시간 동안 마킹이 없으면 매일 자정에 점수가 10%씩 줄어듭니다. 점수가 0이 되면 점유가 해제돼요. 꾸준히 산책하세요!' },
   { icon: '🚗', title: '속도 제한', desc: '이동 속도가 15km/h를 넘으면 마킹이 자동 차단됩니다. 뛰거나 탈것을 타면 적용되지 않아요.' },
-  { icon: '📍', title: '타일 프리뷰', desc: '산책 중 내 위치의 타일이 지도에 노란색 점선으로 미리 표시됩니다. 마킹 전 어느 타일인지 확인하세요.' },
-  { icon: '📊', title: '랭킹', desc: '하단 메뉴에서 전체 랭킹과 내 주변 3km 랭킹을 확인할 수 있어요. 타일 수와 총점 두 가지 기준으로 순위가 집계됩니다.' },
-  { icon: '💬', title: '커뮤니티 & 채팅', desc: '하단 커뮤니티 탭에서 산책일지·자랑 게시글을 올리고 댓글을 달 수 있어요. 다른 견주의 프로필을 누르면 1:1 채팅도 가능합니다.' },
+  { icon: '📍', title: '타일 프리뷰', desc: '산책 중 내 위치의 타일이 지도에 노란색 점선으로 미리 표시됩니다.' },
+  { icon: '📊', title: '랭킹', desc: '' },
+  { icon: '💬', title: '커뮤니티 & 채팅', desc: '' },
   { icon: '🔔', title: '알림', desc: '타일 빼앗김, 게시글 댓글·좋아요, 새 메시지, 감쇄 경고 알림을 받아요. 상단 종 아이콘에서 확인하세요.' },
 ];
 
@@ -125,13 +125,13 @@ export default function OnboardingGuide({ hints = [] }: { hints?: HintItem[] }) 
                 ✕
               </button>
             </div>
-            <ul className="px-4 py-3.5 space-y-4">
+            <ul className="px-4 py-3.5 space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 220px)' }}>
               {ALL_RULES.map((rule, i) => (
                 <li key={i} className="flex gap-3">
                   <span className="text-lg shrink-0 mt-0.5">{rule.icon}</span>
                   <div>
                     <p className="text-xs font-bold text-gray-800">{rule.title}</p>
-                    <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{rule.desc}</p>
+                    {rule.desc && <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{rule.desc}</p>}
                   </div>
                 </li>
               ))}
