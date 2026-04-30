@@ -355,7 +355,7 @@ export default function MapPage() {
 
       // 로그인 직후 localStorage 강아지 데이터를 백엔드에 1회 동기화
       try {
-        if (!sessionStorage.getItem('profileSynced')) {
+        if (!sessionStorage.getItem('profileSynced_v2')) {
           const saved = localStorage.getItem('petProfiles');
           const pets: Array<{ name?: string; breed?: string; age?: string; personality?: string; photoUrl?: string }> = saved ? JSON.parse(saved) : [];
           const pet = Array.isArray(pets) && pets.length > 0 ? pets[0] : null;
@@ -365,7 +365,7 @@ export default function MapPage() {
               token,
             ).catch(() => {});
           }
-          sessionStorage.setItem('profileSynced', '1');
+          sessionStorage.setItem('profileSynced_v2', '1');
         }
       } catch {}
 
@@ -938,6 +938,7 @@ export default function MapPage() {
           idToken={idToken}
           initialChatUser={pendingChatUser ?? undefined}
           onClose={() => { setShowChatList(false); setPendingChatUser(null); }}
+          unreadCount={chatUnreadCount}
         />
       )}
 

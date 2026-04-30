@@ -48,7 +48,9 @@ export default function UserProfilePopup({ profile, onClose, onMessage }: UserPr
         <div className="px-5 pt-12 pb-5 flex flex-col items-center gap-4">
           {/* 이름 */}
           <div className="text-center">
-            <p className="text-lg font-bold text-gray-900">{profile.dogName}</p>
+            <p className="text-lg font-bold text-gray-900">
+              {profile.dogName || '이름 미설정'}
+            </p>
             <p className="text-xs text-gray-400 mt-0.5">{profile.displayName}의 반려견</p>
           </div>
 
