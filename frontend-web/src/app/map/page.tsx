@@ -353,19 +353,16 @@ export default function MapPage() {
       const token = idTokenRef.current ?? await user.getIdToken();
       if (!token) return;
 
-      // 로그인 직후 localStorage 강아지 데이터를 백엔드에 1회 동기화
+      // 로그인마다 localStorage 강아지 데이터를 백엔드에 동기화 (dog_name 누락 방지)
       try {
-        if (!sessionStorage.getItem('profileSynced_v2')) {
-          const saved = localStorage.getItem('petProfiles');
-          const pets: Array<{ name?: string; breed?: string; age?: string; personality?: string; photoUrl?: string }> = saved ? JSON.parse(saved) : [];
-          const pet = Array.isArray(pets) && pets.length > 0 ? pets[0] : null;
-          if (pet && (pet.name || pet.breed || pet.age || pet.personality)) {
-            updateMyProfile(
-              { dogName: pet.name, dogBreed: pet.breed, dogAge: pet.age, dogPersonality: pet.personality, photoUrl: pet.photoUrl },
-              token,
-            ).catch(() => {});
-          }
-          sessionStorage.setItem('profileSynced_v2', '1');
+        const saved = localStorage.getItem('petProfiles');
+        const pets: Array<{ name?: string; breed?: string; age?: string; personality?: string; photoUrl?: string }> = saved ? JSON.parse(saved) : [];
+        const pet = Array.isArray(pets) && pets.length > 0 ? pets[0] : null;
+        if (pet?.name) {
+          updateMyProfile(
+            { dogName: pet.name, dogBreed: pet.breed, dogAge: pet.age, dogPersonality: pet.personality, photoUrl: pet.photoUrl },
+            token,
+          ).catch(() => {});
         }
       } catch {}
 
