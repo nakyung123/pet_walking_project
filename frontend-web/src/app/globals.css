@@ -28,6 +28,13 @@ body {
 button, a, [role="button"] {
   caret-color: transparent;
   user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  outline: none;
+}
+
+input, textarea, select {
+  caret-color: auto;
 }
 
 .scrollbar-hide {

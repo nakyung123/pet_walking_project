@@ -10,15 +10,23 @@ import { emitNewMessage } from '../socket';
 import { createNotification } from '../services/notificationService';
 import logger from '../utils/logger';
 import { AuthRequest } from '../middlewares/authMiddleware';
+import pool from '../db/pool';
 
 export const startConversation = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const myId = (req as AuthRequest).uid;
+    const displayName = (req as AuthRequest).displayName;
     const otherId = req.params.userId;
     if (myId === otherId) {
       res.status(400).json({ success: false, data: null, error: '자기 자신과 대화할 수 없습니다.' });
       return;
     }
+    // FK 오류 방지: 대화 참여자 양쪽 모두 users 테이블에 존재 보장
+    await pool.query(
+      `INSERT INTO users (user_id, display_name, dog_name) VALUES ($1, $2, '')
+       ON CONFLICT (user_id) DO NOTHING`,
+      [myId, displayName],
+    );
     const conversationId = await getOrCreateConversation(myId, otherId);
     res.json({ success: true, data: { conversationId }, error: null });
   } catch (err) {
