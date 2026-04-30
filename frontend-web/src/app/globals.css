@@ -25,6 +25,11 @@ body {
   font-family: var(--font-noto-sans-kr), 'Noto Sans KR', Arial, sans-serif;
 }
 
+button, a, [role="button"] {
+  caret-color: transparent;
+  user-select: none;
+}
+
 .scrollbar-hide {
   scrollbar-width: none;
   -ms-overflow-style: none;

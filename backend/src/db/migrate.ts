@@ -144,5 +144,27 @@ export async function runMigrations(): Promise<void> {
       ON notifications (user_id, is_read, created_at DESC)
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS conversations (
+      id         TEXT PRIMARY KEY,
+      user_id_1  TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+      user_id_2  TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_conversations_user1 ON conversations (user_id_1)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_conversations_user2 ON conversations (user_id_2)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id              BIGSERIAL PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      sender_id       TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+      text            TEXT NOT NULL,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages (conversation_id, created_at)`);
+
   logger.info('[Migration] 마이그레이션 완료');
 }

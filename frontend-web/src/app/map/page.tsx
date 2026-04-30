@@ -7,7 +7,7 @@ import { auth } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import { useGPS } from '@/hooks/useGPS';
 import { useSocket, TileUpdatedPayload } from '@/hooks/useSocket';
-import { getTiles, postMarking, startSession, endSession, getScore, getOccupiedTiles, getLeaderboard, deleteTile, getUserProfile, UserProfile, LeaderboardEntry } from '@/services/api';
+import { getTiles, postMarking, startSession, endSession, getScore, getOccupiedTiles, getLeaderboard, deleteTile, getUserProfile, updateProfile, UserProfile, LeaderboardEntry } from '@/services/api';
 import NaverMap, { Tile } from '@/components/NaverMap';
 import MarkingButton from '@/components/MarkingButton';
 import ScorePanel from '@/components/ScorePanel';
@@ -595,6 +595,12 @@ export default function MapPage() {
           setPetList(newPets);
           setActivePetIdx(0);
           setShowDogSetup(false);
+          if (idToken) {
+            updateProfile(
+              { dogBreed: pet.breed, dogAge: pet.age, dogPersonality: pet.personality },
+              idToken,
+            ).catch(() => {});
+          }
         }}
       />
     );
