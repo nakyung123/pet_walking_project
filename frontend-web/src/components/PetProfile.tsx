@@ -465,6 +465,7 @@ export default function PetProfile({
     setEditing(false);
     if (idToken) {
       updateMyProfile({
+        dogName: draft.name,
         dogBreed: draft.breed,
         dogAge: draft.age,
         dogPersonality: draft.personality,

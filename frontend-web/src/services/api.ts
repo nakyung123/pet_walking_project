@@ -98,7 +98,7 @@ export async function getUserProfile(userId: string, idToken: string) {
 
 // 내 반려견 프로필 저장
 export async function updateMyProfile(
-  profile: { dogBreed?: string; dogAge?: string; dogPersonality?: string; photoUrl?: string },
+  profile: { dogName?: string; dogBreed?: string; dogAge?: string; dogPersonality?: string; photoUrl?: string },
   idToken: string,
 ) {
   return request<null>('/api/users/me/profile', { method: 'PUT', body: JSON.stringify(profile) }, idToken);

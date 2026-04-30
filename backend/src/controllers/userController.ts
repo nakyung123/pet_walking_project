@@ -94,14 +94,14 @@ export const updateMyProfile = async (
 ): Promise<void> => {
   try {
     const uid = (req as Request & { uid: string }).uid;
-    const { dogBreed, dogAge, dogPersonality, photoUrl } = req.body as {
-      dogBreed?: string; dogAge?: string; dogPersonality?: string; photoUrl?: string;
+    const { dogName, dogBreed, dogAge, dogPersonality, photoUrl } = req.body as {
+      dogName?: string; dogBreed?: string; dogAge?: string; dogPersonality?: string; photoUrl?: string;
     };
     await pool.query(
       `UPDATE users
-       SET dog_breed=$1, dog_age=$2, dog_personality=$3, photo_url=$4
-       WHERE user_id=$5`,
-      [dogBreed ?? null, dogAge ?? null, dogPersonality ?? null, photoUrl ?? null, uid],
+       SET dog_name=COALESCE(NULLIF($1,''), dog_name), dog_breed=$2, dog_age=$3, dog_personality=$4, photo_url=$5
+       WHERE user_id=$6`,
+      [dogName ?? null, dogBreed ?? null, dogAge ?? null, dogPersonality ?? null, photoUrl ?? null, uid],
     );
     res.json({ success: true, data: null, error: null });
   } catch (err) {

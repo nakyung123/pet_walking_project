@@ -94,6 +94,7 @@ export default function MapPage() {
   const [showChatList, setShowChatList] = useState(false);
   const [showCommunity, setShowCommunity] = useState(false);
   const [pendingChatUser, setPendingChatUser] = useState<ChatUser | null>(null);
+  const [chatUnreadCount, setChatUnreadCount] = useState(0);
 
   // 타일 정보 카드
   const [selectedTile, setSelectedTile] = useState<Tile | null | undefined>(undefined);
@@ -356,11 +357,11 @@ export default function MapPage() {
       try {
         if (!sessionStorage.getItem('profileSynced')) {
           const saved = localStorage.getItem('petProfiles');
-          const pets: Array<{ breed?: string; age?: string; personality?: string; photoUrl?: string }> = saved ? JSON.parse(saved) : [];
+          const pets: Array<{ name?: string; breed?: string; age?: string; personality?: string; photoUrl?: string }> = saved ? JSON.parse(saved) : [];
           const pet = Array.isArray(pets) && pets.length > 0 ? pets[0] : null;
-          if (pet && (pet.breed || pet.age || pet.personality)) {
+          if (pet && (pet.name || pet.breed || pet.age || pet.personality)) {
             updateMyProfile(
-              { dogBreed: pet.breed, dogAge: pet.age, dogPersonality: pet.personality, photoUrl: pet.photoUrl },
+              { dogName: pet.name, dogBreed: pet.breed, dogAge: pet.age, dogPersonality: pet.personality, photoUrl: pet.photoUrl },
               token,
             ).catch(() => {});
           }
@@ -613,7 +614,7 @@ export default function MapPage() {
           setShowDogSetup(false);
           if (idToken) {
             updateMyProfile(
-              { dogBreed: pet.breed, dogAge: pet.age, dogPersonality: pet.personality },
+              { dogName: pet.name, dogBreed: pet.breed, dogAge: pet.age, dogPersonality: pet.personality },
               idToken,
             ).catch(() => {});
           }
@@ -679,6 +680,7 @@ export default function MapPage() {
         onWalkLog={() => setShowWalkLog(true)}
         onProfile={() => setShowProfile(true)}
         onSettings={() => setShowSettings(true)}
+        onUnreadChatChange={setChatUnreadCount}
       />
 
       {/* 필터 탭 */}
@@ -840,12 +842,19 @@ export default function MapPage() {
           </button>
 
           {/* ④ 메시지 */}
-          <button
-            onClick={() => setShowChatList(true)}
-            className="w-11 h-11 rounded-full bg-white/95 backdrop-blur-sm border border-white/60 flex items-center justify-center shadow-lg active:scale-95 transition-transform text-xl"
-          >
-            💬
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => { setShowChatList(true); setChatUnreadCount(0); }}
+              className="w-11 h-11 rounded-full bg-white/95 backdrop-blur-sm border border-white/60 flex items-center justify-center shadow-lg active:scale-95 transition-transform text-xl"
+            >
+              💬
+            </button>
+            {chatUnreadCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center px-1 leading-none pointer-events-none">
+                {chatUnreadCount > 99 ? '99+' : chatUnreadCount}
+              </span>
+            )}
+          </div>
 
           {/* ⑤ 커뮤니티 */}
           <button

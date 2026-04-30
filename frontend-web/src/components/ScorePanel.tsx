@@ -36,11 +36,12 @@ interface ScorePanelProps {
   onWalkLog: () => void;
   onProfile: () => void;
   onSettings: () => void;
+  onUnreadChatChange?: (count: number) => void;
 }
 
 export default function ScorePanel({
   score, tileCount, userName, expiringCount = 0, idToken,
-  onWalkLog, onProfile, onSettings,
+  onWalkLog, onProfile, onSettings, onUnreadChatChange,
 }: ScorePanelProps) {
   const [showNotif, setShowNotif] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -54,11 +55,15 @@ export default function ScorePanel({
       if (res.success && res.data) {
         setNotifications(res.data.notifications);
         setUnreadCount(res.data.unreadCount);
+        const chatUnread = res.data.notifications.filter(
+          (n) => n.type === 'new_chat_message' && !n.isRead,
+        ).length;
+        onUnreadChatChange?.(chatUnread);
       }
     } catch (e) {
       console.error('[ScorePanel] 알림 조회 실패:', e);
     }
-  }, [idToken]);
+  }, [idToken, onUnreadChatChange]);
 
   useEffect(() => {
     fetchNotifications();
