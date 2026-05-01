@@ -56,7 +56,7 @@ export default function LoginPage() {
 
   return (
     <div
-      className="flex h-screen overflow-hidden flex-col items-center justify-center px-8"
+      className="fixed inset-0 flex flex-col items-center justify-center px-8 overflow-hidden"
       style={{ background: 'linear-gradient(160deg, #FFF7ED 0%, #FFEDD5 60%, #FED7AA 100%)' }}
     >
       {/* 배경 장식 원 */}

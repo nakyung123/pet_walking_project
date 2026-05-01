@@ -123,6 +123,7 @@ export default function MapPage() {
   // 좌측 아이콘 상태
   const [missionState, setMissionState] = useState<'hidden' | 'popup' | 'banner'>('hidden');
   const [hasSeenMission, setHasSeenMission] = useState(false);
+  const [missionDone, setMissionDone] = useState(false);
   const [showDogList, setShowDogList] = useState(false);
   const [flyTo, setFlyTo] = useState<{ lat: number; lng: number; zoom: number } | null>(null);
   const [activePetIdx, setActivePetIdx] = useState(0);
@@ -614,7 +615,7 @@ export default function MapPage() {
           setShowDogSetup(false);
           if (idToken) {
             updateMyProfile(
-              { dogName: pet.name, dogBreed: pet.breed, dogAge: pet.age, dogPersonality: pet.personality },
+              { dogName: pet.name, dogBreed: pet.breed, dogAge: pet.age, dogPersonality: pet.personality, photoUrl: pet.photoUrl },
               idToken,
             ).catch(() => {});
           }
@@ -710,8 +711,14 @@ export default function MapPage() {
         <div className="absolute top-[168px] left-0 right-0 z-10 flex justify-center px-4">
           <div className="flex items-center gap-2.5 bg-white/97 backdrop-blur-sm rounded-full px-5 py-3 shadow-md border border-orange-100">
             <span className="text-lg">⭐</span>
-            <span className="text-sm font-semibold text-gray-800">오늘 1칸만 더 마킹하면 미션 완료!</span>
-            <span className="text-sm font-black text-orange-500">+50P</span>
+            <span className={`text-sm font-semibold ${missionDone ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+              오늘 1칸만 더 마킹하면 미션 완료!
+            </span>
+            {missionDone ? (
+              <span className="text-sm font-bold text-green-500">✓ 완료</span>
+            ) : (
+              <span className="text-sm font-black text-orange-500">+50P</span>
+            )}
           </div>
         </div>
       )}
@@ -730,13 +737,33 @@ export default function MapPage() {
             >✕</button>
             <div className="px-6 pt-5 pb-6 text-center">
               <p className="text-xs font-bold text-orange-400 tracking-widest mb-2">일일 미션</p>
-              <p className="text-xl font-bold text-gray-900 leading-snug mb-5">
+              <p className={`text-xl font-bold leading-snug mb-5 ${missionDone ? 'line-through text-gray-400' : 'text-gray-900'}`}>
                 오늘 1칸만 더 마킹하면<br />미션 완료!
               </p>
-              <div className="bg-amber-50 rounded-2xl py-4 flex flex-col items-center border border-amber-100">
+              <div className="bg-amber-50 rounded-2xl py-4 flex flex-col items-center border border-amber-100 mb-4">
                 <p className="text-xs text-gray-400 mb-1">달성 보상</p>
                 <p className="text-4xl font-black text-orange-500">+50P</p>
               </div>
+              {missionDone ? (
+                <p className="text-sm font-bold text-green-500">✓ 미션 완료!</p>
+              ) : (
+                <button
+                  onClick={() => {
+                    setMissionDone(true);
+                    try {
+                      const records = JSON.parse(localStorage.getItem('pointHistory') || '[]');
+                      records.push({ timestamp: Date.now(), type: 'mission', points: 50, label: '일일 미션 완료' });
+                      localStorage.setItem('pointHistory', JSON.stringify(records));
+                    } catch {}
+                    showToast('🎯 미션 완료! +50P 적립됐어요', 'success');
+                    setMissionState('banner');
+                  }}
+                  className="w-full py-3 rounded-2xl text-sm font-bold text-white"
+                  style={{ background: 'linear-gradient(135deg, #FB923C, #F97316)' }}
+                >
+                  완료
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -816,7 +843,7 @@ export default function MapPage() {
             className={`w-11 h-11 rounded-full flex items-center justify-center border transition-colors ${
               missionState !== 'hidden'
                 ? 'bg-orange-400 border-orange-400 shadow-lg'
-                : 'bg-white/95 backdrop-blur-sm border-yellow-300 mission-glow'
+                : 'bg-white/95 backdrop-blur-sm border-white/60 shadow-lg'
             }`}
           >
             <span className="text-xl">❕</span>

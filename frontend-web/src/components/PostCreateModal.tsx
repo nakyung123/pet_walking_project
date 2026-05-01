@@ -106,12 +106,11 @@ export default function PostCreateModal({ idToken, onClose, onCreated }: Props) 
           <div>
             <input
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              maxLength={60}
+              onChange={(e) => setTitle(e.target.value.slice(0, 60))}
               placeholder="제목을 입력하세요"
               className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-orange-400"
             />
-            <p className="text-right text-[11px] text-gray-400 mt-1">{title.length}/60자</p>
+            <p className={`text-right text-[11px] mt-1 ${title.length >= 55 ? 'text-orange-500' : 'text-gray-400'}`}>{title.length}/60자</p>
           </div>
 
           {/* 본문 */}

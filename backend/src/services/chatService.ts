@@ -78,7 +78,8 @@ export async function getConversations(myId: string): Promise<ConversationSummar
        WHERE conversation_id = c.id
        ORDER BY created_at DESC LIMIT 1
      ) m ON true
-     WHERE c.user_id_1 = $1 OR c.user_id_2 = $1
+     WHERE (c.user_id_1 = $1 AND NOT c.deleted_for_user1)
+        OR (c.user_id_2 = $1 AND NOT c.deleted_for_user2)
      ORDER BY COALESCE(m.created_at, c.created_at) DESC`,
     [myId],
   );
@@ -124,6 +125,11 @@ export async function getMessages(convId: string, limit = 100): Promise<ChatMess
 }
 
 export async function saveMessage(convId: string, senderId: string, text: string | null, imageUrl?: string | null): Promise<ChatMessage> {
+  // 새 메시지 전송 시 양측의 소프트 딜리트 플래그 리셋 (대화방 복원)
+  await pool.query(
+    `UPDATE conversations SET deleted_for_user1 = false, deleted_for_user2 = false WHERE id = $1`,
+    [convId],
+  );
   const result = await pool.query<{
     id: string;
     conversation_id: string;
@@ -151,7 +157,14 @@ export async function saveMessage(convId: string, senderId: string, text: string
 export async function deleteConversation(convId: string, myId: string): Promise<boolean> {
   const participants = await getConversationParticipants(convId);
   if (!participants || !participants.includes(myId)) return false;
-  await pool.query(`DELETE FROM conversations WHERE id = $1`, [convId]);
+  // 소프트 딜리트: 요청한 유저에게만 숨김 처리 (상대방 대화는 유지)
+  await pool.query(
+    `UPDATE conversations
+     SET deleted_for_user1 = CASE WHEN user_id_1 = $2 THEN true ELSE deleted_for_user1 END,
+         deleted_for_user2 = CASE WHEN user_id_2 = $2 THEN true ELSE deleted_for_user2 END
+     WHERE id = $1`,
+    [convId, myId],
+  );
   return true;
 }
 

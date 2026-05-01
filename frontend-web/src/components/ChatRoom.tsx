@@ -5,12 +5,15 @@ import { createPortal } from 'react-dom';
 import { io, Socket } from 'socket.io-client';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import ReportModal from './ReportModal';
+import UserProfilePopup from './UserProfilePopup';
 import {
   startConversation,
   getConversationMessages,
   sendChatMessage,
   markConversationNotificationsRead,
+  getUserProfile,
   ChatMessage,
+  UserProfile,
 } from '@/services/api';
 import { storage } from '@/lib/firebase';
 
@@ -61,6 +64,11 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
   const [sending, setSending] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [fullTextMsg, setFullTextMsg] = useState<string | null>(null);
+  // 이미지 미리보기
+  const [pendingImage, setPendingImage] = useState<{ file: File; previewUrl: string } | null>(null);
+  // 상대방 프로필 팝업
+  const [otherProfile, setOtherProfile] = useState<UserProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -75,7 +83,6 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
         if (cancelled || !convRes.success || !convRes.data) return;
         const id = convRes.data.conversationId;
         setConvId(id);
-        // 이 대화방의 미읽은 알림 읽음 처리 (fire-and-forget)
         markConversationNotificationsRead(id, idToken).catch(() => {});
         const msgRes = await getConversationMessages(id, idToken);
         if (!cancelled && msgRes.success && msgRes.data) {
@@ -88,7 +95,7 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
     return () => { cancelled = true; };
   }, [otherUser.userId, idToken]);
 
-  // 소켓 연결 — new_message 수신 시 메시지 추가
+  // 소켓 연결
   useEffect(() => {
     const socket = io(SERVER, {
       transports: ['websocket', 'polling'],
@@ -130,10 +137,21 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
     }
   }, [input, convId, sending, idToken]);
 
-  const handleImageSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 이미지 선택 시 미리보기만 저장 (아직 업로드 안 함)
+  const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !convId || sending) return;
     e.target.value = '';
+    if (!file) return;
+    const previewUrl = URL.createObjectURL(file);
+    setPendingImage({ file, previewUrl });
+  }, []);
+
+  // 미리보기 확인 후 실제 업로드 및 전송
+  const handleImageSend = useCallback(async () => {
+    if (!pendingImage || !convId || sending) return;
+    const { file, previewUrl } = pendingImage;
+    setPendingImage(null);
+    URL.revokeObjectURL(previewUrl);
     setSending(true);
     try {
       const storageRef = ref(storage, `chat/${convId}/${Date.now()}_${file.name}`);
@@ -145,7 +163,28 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
     } finally {
       setSending(false);
     }
-  }, [convId, sending, idToken]);
+  }, [pendingImage, convId, sending, idToken]);
+
+  const handleImageCancel = useCallback(() => {
+    if (pendingImage) {
+      URL.revokeObjectURL(pendingImage.previewUrl);
+      setPendingImage(null);
+    }
+  }, [pendingImage]);
+
+  // 헤더 프로필 클릭 → 상대방 프로필 팝업
+  const handleProfileClick = useCallback(async () => {
+    if (otherUser.isDeleted || profileLoading) return;
+    setProfileLoading(true);
+    try {
+      const res = await getUserProfile(otherUser.userId, idToken);
+      if (res.success && res.data) setOtherProfile(res.data);
+    } catch (e) {
+      console.error('[ChatRoom] 프로필 조회 실패', e);
+    } finally {
+      setProfileLoading(false);
+    }
+  }, [otherUser.userId, otherUser.isDeleted, profileLoading, idToken]);
 
   return createPortal(
     <div className="fixed inset-0 z-[60] flex items-center justify-center px-5">
@@ -164,7 +203,12 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
             ←
           </button>
 
-          <div className="flex items-center gap-3 flex-1 min-w-0">
+          {/* 프로필 영역: 클릭 시 팝업 */}
+          <button
+            onClick={handleProfileClick}
+            disabled={otherUser.isDeleted || profileLoading}
+            className="flex items-center gap-3 flex-1 min-w-0 text-left disabled:cursor-default"
+          >
             <div className="w-10 h-10 rounded-full border-2 border-white/80 overflow-hidden bg-orange-100 shrink-0">
               {otherUser.photoUrl ? (
                 <img src={otherUser.photoUrl} alt={otherUser.dogName} className="w-full h-full object-cover" />
@@ -178,14 +222,17 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
               )}
             </div>
             <div className="min-w-0">
-              <p className="text-white font-bold text-sm truncate">{otherUser.dogName}</p>
+              <p className="text-white font-bold text-sm truncate">
+                {otherUser.dogName}
+                {profileLoading && <span className="ml-1 text-white/60 text-xs">···</span>}
+              </p>
               <p className="text-white/80 text-[11px] truncate">
                 {otherUser.displayName}
                 {otherUser.dogBreed ? ` · ${otherUser.dogBreed}` : ''}
                 {otherUser.dogAge ? ` · ${otherUser.dogAge}` : ''}
               </p>
             </div>
-          </div>
+          </button>
 
           <button
             onClick={() => setShowReport(true)}
@@ -300,10 +347,57 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
 
       </div>
 
+      {/* 이미지 미리보기 모달 */}
+      {pendingImage && createPortal(
+        <div className="fixed inset-0 z-[80] flex items-end justify-center">
+          <div className="absolute inset-0 bg-black/70" onClick={handleImageCancel} />
+          <div className="relative w-full max-w-sm bg-white rounded-t-3xl shadow-2xl overflow-hidden">
+            {/* 미리보기 헤더 */}
+            <div className="flex items-center justify-between px-5 pt-4 pb-3">
+              <p className="text-sm font-bold text-gray-900">사진 전송</p>
+              <button
+                onClick={handleImageCancel}
+                className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+            {/* 이미지 미리보기 */}
+            <div className="px-5 pb-3 flex justify-center bg-gray-50">
+              <img
+                src={pendingImage.previewUrl}
+                alt="전송할 사진"
+                className="max-h-64 max-w-full rounded-2xl object-contain shadow"
+              />
+            </div>
+            {/* 전송 버튼 */}
+            <div className="px-5 py-4">
+              <button
+                onClick={handleImageSend}
+                disabled={sending}
+                className="w-full py-3 rounded-2xl text-sm font-bold text-white disabled:opacity-50 active:scale-95 transition-transform"
+                style={{ background: 'linear-gradient(135deg, #FB923C, #F97316)' }}
+              >
+                {sending ? '전송 중…' : '사진 보내기'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+
       {showReport && (
         <ReportModal
           targetName={otherUser.dogName}
           onClose={() => setShowReport(false)}
+        />
+      )}
+
+      {/* 상대방 프로필 팝업 (메시지 보내기 버튼 없음) */}
+      {otherProfile && (
+        <UserProfilePopup
+          profile={otherProfile}
+          onClose={() => setOtherProfile(null)}
         />
       )}
 

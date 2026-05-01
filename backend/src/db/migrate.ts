@@ -174,6 +174,9 @@ export async function runMigrations(): Promise<void> {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE`);
   await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS image_url TEXT`);
   await pool.query(`ALTER TABLE messages ALTER COLUMN text DROP NOT NULL`);
+  // 소프트 딜리트: 각 유저가 독립적으로 대화를 숨길 수 있도록
+  await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS deleted_for_user1 BOOLEAN NOT NULL DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS deleted_for_user2 BOOLEAN NOT NULL DEFAULT FALSE`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS user_daily_missions (

@@ -58,7 +58,7 @@ export default function UserProfilePopup({ profile, onClose, onMessage }: UserPr
           <div className="w-full grid grid-cols-2 gap-2">
             {[
               { label: '견종', value: profile.dogBreed ?? '미등록' },
-              { label: '나이', value: profile.dogAge ?? '미등록' },
+              { label: '나이', value: profile.dogAge ? `${profile.dogAge}살` : '미등록' },
             ].map(({ label, value }) => (
               <div key={label} className="bg-gray-50 rounded-2xl px-2 py-3 text-center">
                 <p className="text-[10px] text-gray-400">{label}</p>

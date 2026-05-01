@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { storage } from '@/lib/firebase';
 
 interface PetData {
   name: string;
@@ -10,6 +12,7 @@ interface PetData {
   neutered: boolean;
   personality: string;
   weight: number;
+  photoUrl?: string;
 }
 
 interface Props {
@@ -55,10 +58,14 @@ const DOG_BREEDS = [
 function BreedSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
 
   const filtered = query.trim() ? DOG_BREEDS.filter((b) => matchBreed(b, query.trim())) : [];
+
+  useEffect(() => { setActiveIdx(-1); }, [query]);
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -71,15 +78,39 @@ function BreedSelect({ value, onChange }: { value: string; onChange: (v: string)
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
+  useEffect(() => {
+    if (activeIdx < 0 || !listRef.current) return;
+    const items = listRef.current.querySelectorAll('li[data-idx]');
+    (items[activeIdx] as HTMLElement)?.scrollIntoView({ block: 'nearest' });
+  }, [activeIdx]);
+
   const select = (breed: string) => {
     onChange(breed);
     setOpen(false);
     setQuery('');
+    setActiveIdx(-1);
   };
 
   const handleOpen = () => {
     setOpen(true);
     setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!open || filtered.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveIdx((prev) => Math.min(prev + 1, filtered.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveIdx((prev) => Math.max(prev - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeIdx >= 0) select(filtered[activeIdx]);
+    } else if (e.key === 'Escape') {
+      setOpen(false);
+      setQuery('');
+    }
   };
 
   return (
@@ -101,6 +132,7 @@ function BreedSelect({ value, onChange }: { value: string; onChange: (v: string)
             value={query}
             placeholder="견종을 검색해주세요 (초성 가능)"
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
             className="flex-1 text-sm text-gray-800 focus:outline-none placeholder:text-gray-400 bg-transparent"
           />
           <span className="text-gray-400 text-xs shrink-0">▲</span>
@@ -108,18 +140,23 @@ function BreedSelect({ value, onChange }: { value: string; onChange: (v: string)
       )}
 
       {open && (
-        <ul className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-50 max-h-44 overflow-y-auto">
+        <ul ref={listRef} className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-50 max-h-44 overflow-y-auto scrollbar-hide">
           {query.trim() === '' ? (
             <li className="text-xs text-gray-500 text-center py-3">견종을 입력하면 검색돼요</li>
           ) : filtered.length === 0 ? (
             <li className="text-xs text-gray-400 text-center py-3">검색 결과 없음</li>
           ) : (
-            filtered.map((b) => (
+            filtered.map((b, i) => (
               <li
                 key={b}
+                data-idx={i}
                 onMouseDown={() => select(b)}
-                className={`text-sm px-3.5 py-2 cursor-pointer hover:bg-orange-50 transition-colors ${
-                  b === value ? 'text-orange-500 font-bold' : 'text-gray-700'
+                className={`text-sm px-3.5 py-2 cursor-pointer transition-colors ${
+                  i === activeIdx
+                    ? 'bg-orange-100 text-orange-600 font-bold'
+                    : b === value
+                    ? 'text-orange-500 font-bold hover:bg-orange-50'
+                    : 'text-gray-700 hover:bg-orange-50'
                 }`}
               >
                 {b}
@@ -135,22 +172,59 @@ function BreedSelect({ value, onChange }: { value: string; onChange: (v: string)
 export default function DogSetupScreen({ onDone }: Props) {
   const [name, setName] = useState('');
   const [breed, setBreed] = useState('');
-  const [age, setAge] = useState('');
+  const [age, setAge] = useState('0');
   const [gender, setGender] = useState<'male' | 'female'>('male');
   const [neutered, setNeutered] = useState(false);
-  const [weight, setWeight] = useState('');
+  const [rawWeight, setRawWeight] = useState(''); // 소수점 없는 정수 문자열 (1005 → 100.5)
   const [personality, setPersonality] = useState('');
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 1005 → "100.5"
+  const displayWeight = rawWeight ? (parseInt(rawWeight) / 10).toFixed(1) : '0.0';
 
   const canStart = name.trim() && breed && age && personality.trim();
 
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const storageRef = ref(storage, `profiles/${Date.now()}_${file.name}`);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+      setPhotoUrl(url);
+    } catch {
+      // 업로드 실패 시 무시
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleWeightInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const digits = e.target.value.replace(/[^0-9]/g, '').slice(0, 4); // 최대 4자리 → 999.9
+    setRawWeight(digits);
+  };
+
   const handleStart = () => {
     if (!canStart) return;
-    onDone({ name: name.trim(), breed, age, gender, neutered, personality: personality.trim(), weight: weight ? Math.min(parseFloat(weight) || 0, 99) : 0 });
+    onDone({
+      name: name.trim(),
+      breed,
+      age,
+      gender,
+      neutered,
+      personality: personality.trim(),
+      weight: rawWeight ? parseInt(rawWeight) / 10 : 0,
+      photoUrl: photoUrl ?? undefined,
+    });
   };
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center px-6 overflow-y-auto py-8"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center px-6 overflow-y-auto scrollbar-hide py-8"
       style={{ background: 'linear-gradient(160deg, #FFF7ED 0%, #FFEDD5 60%, #FED7AA 100%)' }}
     >
       <div className="absolute top-0 left-0 w-72 h-72 rounded-full opacity-30 -translate-x-1/3 -translate-y-1/3"
@@ -159,8 +233,36 @@ export default function DogSetupScreen({ onDone }: Props) {
         style={{ background: 'radial-gradient(circle, #F97316, transparent)' }} />
 
       <div className="relative z-10 flex flex-col items-center gap-5 w-full max-w-xs">
-        <div className="w-24 h-24 rounded-full overflow-hidden shadow-lg border-4 border-white/80">
-          <img src="/bichon.png" alt="강아지" className="w-full h-full object-cover" />
+
+        {/* 프로필 사진 */}
+        <div className="relative">
+          <div
+            className="w-24 h-24 rounded-full overflow-hidden shadow-lg border-4 border-white/80 cursor-pointer"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {uploading ? (
+              <div className="w-full h-full flex items-center justify-center bg-orange-50">
+                <div className="w-5 h-5 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : photoUrl ? (
+              <img src={photoUrl} alt="프로필" className="w-full h-full object-cover" />
+            ) : (
+              <img src="/bichon.png" alt="강아지" className="w-full h-full object-cover" />
+            )}
+          </div>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-orange-500 text-white flex items-center justify-center shadow-md text-xs"
+          >
+            +
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handlePhotoSelect}
+          />
         </div>
 
         <div className="text-center">
@@ -200,8 +302,7 @@ export default function DogSetupScreen({ onDone }: Props) {
                 inputMode="numeric"
                 pattern="[0-9]*"
                 value={age}
-                onChange={(e) => setAge(e.target.value.replace(/[^0-9]/g, '').slice(0, 2))}
-                placeholder="예: 3"
+                onChange={(e) => setAge(e.target.value.replace(/[^0-9]/g, '').slice(0, 2) || '0')}
                 className="w-20 px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:border-orange-400 text-center"
               />
               <span className="text-sm text-gray-500">살</span>
@@ -247,21 +348,20 @@ export default function DogSetupScreen({ onDone }: Props) {
           <div>
             <label className="text-xs font-bold text-gray-600 mb-1.5 block">체중 (선택)</label>
             <div className="flex items-center gap-2">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={weight}
-                onChange={(e) => {
-                  const raw = e.target.value.replace(/[^0-9.]/g, '');
-                  const clean = raw.split('.').length > 2 ? raw.slice(0, raw.lastIndexOf('.')) : raw;
-                  const val = parseFloat(clean);
-                  setWeight(clean === '' ? '' : String(isNaN(val) ? weight : Math.min(val, 99)));
-                }}
-                placeholder="예: 5.5"
-                className="w-20 px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:border-orange-400 text-center"
-              />
-              <span className="text-sm text-gray-500">kg</span>
+              <div className="w-24 px-3.5 py-2.5 rounded-xl border border-gray-200 bg-white focus-within:border-orange-400 flex items-center gap-0.5">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={rawWeight}
+                  onChange={handleWeightInput}
+                  placeholder=""
+                  className="w-full text-sm text-gray-800 focus:outline-none bg-transparent text-right"
+                  style={{ caretColor: 'auto' }}
+                />
+              </div>
+              <span className="text-sm text-gray-500 shrink-0">= {displayWeight} kg</span>
             </div>
+            <p className="text-[11px] text-gray-400 mt-1">숫자만 입력 (예: 1005 → 100.5kg, 최대 999.9)</p>
           </div>
 
           <div>

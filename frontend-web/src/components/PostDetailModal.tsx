@@ -4,10 +4,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
   getPostDetail, getComments, toggleLike, createComment,
-  deleteComment, deletePost, reportContent, Post, Comment,
+  deleteComment, deletePost, reportContent, getUserProfile,
+  Post, Comment, UserProfile,
 } from '@/services/api';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import ReportModal from '@/components/ReportModal';
+import UserProfilePopup from '@/components/UserProfilePopup';
 
 const POST_REPORT_TYPES = [
   '욕설 / 비방',
@@ -38,7 +40,7 @@ function timeAgo(iso: string): string {
 
 function CommentItem({
   comment, depth, currentUserId, idToken, postId,
-  onReply, onDeleted, onReport,
+  onReply, onDeleted, onReport, onAuthorClick,
 }: {
   comment: Comment;
   depth: number;
@@ -48,6 +50,7 @@ function CommentItem({
   onReply: (id: string, name: string) => void;
   onDeleted: (id: string) => void;
   onReport: (commentId: string) => void;
+  onAuthorClick: (userId: string) => void;
 }) {
   const isMe = comment.userId === currentUserId;
   return (
@@ -56,12 +59,17 @@ function CommentItem({
         <div className="w-7 h-7 rounded-full bg-orange-100 border border-orange-200 shrink-0 flex items-center justify-center text-xs font-bold text-orange-500">
           {comment.displayName.slice(0, 1)}
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-gray-800">{comment.displayName}</span>
+            <button
+              onClick={() => onAuthorClick(comment.userId)}
+              className="text-xs font-bold text-gray-800 hover:text-orange-500 transition-colors"
+            >
+              {comment.displayName}
+            </button>
             <span className="text-[10px] text-gray-400">{timeAgo(comment.createdAt)}</span>
           </div>
-          <p className="text-sm text-gray-700 mt-0.5 leading-snug">{comment.content}</p>
+          <p className="text-sm text-gray-700 mt-0.5 leading-snug break-words whitespace-pre-wrap">{comment.content}</p>
           <div className="flex gap-3 mt-1">
             <button
               onClick={() => onReply(comment.id, comment.displayName)}
@@ -87,6 +95,7 @@ function CommentItem({
           onReply={onReply}
           onDeleted={onDeleted}
           onReport={onReport}
+          onAuthorClick={onAuthorClick}
         />
       ))}
     </div>
@@ -95,9 +104,10 @@ function CommentItem({
 
 function PostDetailContent({
   post, comments, input, replyTo, imageIdx, submitting, isMyPost,
-  currentUserId, idToken,
+  currentUserId, idToken, lightboxOpen,
   onClose, onDeletePost, onLike, onReport, onSubmitComment,
   onDeleteComment, onReplySet, onReplyCancel, onImageIdx, onInputChange, onKeyDown,
+  onImageClick, onLightboxClose, onAuthorClick,
 }: {
   post: Post;
   comments: Comment[];
@@ -108,6 +118,7 @@ function PostDetailContent({
   isMyPost: boolean;
   currentUserId: string;
   idToken: string;
+  lightboxOpen: boolean;
   onClose: () => void;
   onDeletePost: () => void;
   onLike: () => void;
@@ -119,57 +130,98 @@ function PostDetailContent({
   onImageIdx: (i: number) => void;
   onInputChange: (v: string) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
+  onImageClick: () => void;
+  onLightboxClose: () => void;
+  onAuthorClick: (userId: string) => void;
 }) {
+  const actionBtnClass = "shrink-0 px-3 h-8 rounded-full text-white text-xs font-bold border transition-colors";
+
   return (
     <>
+      {/* 헤더 */}
       <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 shrink-0">
         <button
           onClick={onClose}
-          className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 text-sm"
-        >✕</button>
+          className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-600 text-base hover:bg-gray-200 transition-colors"
+        >
+          ←
+        </button>
         <div className="flex gap-2">
           {!isMyPost && (
             <button
               onClick={() => onReport()}
-              className="shrink-0 px-3 h-8 rounded-full bg-gray-100 text-gray-600 text-xs font-bold border border-gray-200 hover:bg-gray-200 transition-colors"
+              className={actionBtnClass}
+              style={{ background: 'linear-gradient(135deg, #FB923C, #F97316)', borderColor: 'transparent' }}
             >신고</button>
           )}
           {isMyPost && (
-            <button onClick={onDeletePost} className="text-xs text-red-400">삭제</button>
+            <button
+              onClick={onDeletePost}
+              className={actionBtnClass}
+              style={{ background: 'linear-gradient(135deg, #FB923C, #F97316)', borderColor: 'transparent' }}
+            >삭제</button>
           )}
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
+        {/* 이미지 */}
         {post.images.length > 0 && (
           <div className="relative bg-gray-100 aspect-video">
-            <img src={post.images[imageIdx]?.url} alt="" className="w-full h-full object-cover" />
+            <img
+              src={post.images[imageIdx]?.url}
+              alt=""
+              className="w-full h-full object-cover cursor-pointer"
+              onClick={onImageClick}
+            />
+            {/* 화살표 버튼 */}
             {post.images.length > 1 && (
-              <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
-                {post.images.map((_, i) => (
-                  <button
-                    key={i}
-                    onClick={() => onImageIdx(i)}
-                    className={`w-1.5 h-1.5 rounded-full transition-colors ${i === imageIdx ? 'bg-white' : 'bg-white/50'}`}
-                  />
-                ))}
-              </div>
+              <>
+                <button
+                  onClick={() => onImageIdx((imageIdx - 1 + post.images.length) % post.images.length)}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 text-white flex items-center justify-center text-sm hover:bg-black/60 transition-colors"
+                >
+                  ‹
+                </button>
+                <button
+                  onClick={() => onImageIdx((imageIdx + 1) % post.images.length)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 text-white flex items-center justify-center text-sm hover:bg-black/60 transition-colors"
+                >
+                  ›
+                </button>
+                <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
+                  {post.images.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => onImageIdx(i)}
+                      className={`w-1.5 h-1.5 rounded-full transition-colors ${i === imageIdx ? 'bg-white' : 'bg-white/50'}`}
+                    />
+                  ))}
+                </div>
+              </>
             )}
           </div>
         )}
 
         <div className="px-5 py-4">
+          {/* 작성자 */}
           <div className="flex items-center gap-2 mb-3">
             <div className="w-8 h-8 rounded-full bg-orange-100 border border-orange-200 flex items-center justify-center text-sm font-bold text-orange-500">
               {post.displayName.slice(0, 1)}
             </div>
             <div>
-              <p className="text-sm font-bold text-gray-800">{post.displayName}</p>
+              <button
+                onClick={() => onAuthorClick(post.userId)}
+                className="text-sm font-bold text-gray-800 hover:text-orange-500 transition-colors"
+              >
+                {post.displayName}
+              </button>
               <p className="text-[10px] text-gray-400">{timeAgo(post.createdAt)}</p>
             </div>
           </div>
-          <h2 className="text-base font-bold text-gray-900 mb-2">{post.title}</h2>
-          <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{post.content}</p>
+
+          <h2 className="text-base font-bold text-gray-900 mb-2 break-words">{post.title}</h2>
+          <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap break-words">{post.content}</p>
 
           <div className="flex items-center gap-4 mt-4 pt-4 border-t border-gray-100">
             <button
@@ -198,11 +250,13 @@ function PostDetailContent({
               onReply={onReplySet}
               onDeleted={onDeleteComment}
               onReport={(commentId) => onReport(commentId)}
+              onAuthorClick={onAuthorClick}
             />
           ))}
         </div>
       </div>
 
+      {/* 댓글 입력 */}
       <div className="px-4 py-3 border-t border-gray-100 shrink-0">
         {replyTo && (
           <div className="flex items-center gap-2 mb-2 px-3 py-1.5 bg-orange-50 rounded-xl">
@@ -239,6 +293,31 @@ function PostDetailContent({
           </button>
         </div>
       </div>
+
+      {/* 이미지 원본 lightbox */}
+      {lightboxOpen && createPortal(
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90"
+          onClick={onLightboxClose}
+        >
+          <button
+            className="absolute top-4 right-4 w-9 h-9 flex items-center justify-center rounded-full bg-white/20 text-white text-lg hover:bg-white/30 transition-colors"
+            onClick={onLightboxClose}
+          >✕</button>
+          {post.images.length > 1 && (
+            <span className="absolute top-4 left-1/2 -translate-x-1/2 text-white/70 text-sm">
+              {imageIdx + 1} / {post.images.length}
+            </span>
+          )}
+          <img
+            src={post.images[imageIdx]?.url}
+            alt=""
+            className="max-w-full max-h-full object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>,
+        document.body,
+      )}
     </>
   );
 }
@@ -249,10 +328,12 @@ export default function PostDetailModal({ postId, idToken, currentUserId, onClos
   const [input, setInput]       = useState('');
   const [replyTo, setReplyTo]   = useState<{ id: string; name: string } | null>(null);
   const [imageIdx, setImageIdx] = useState(0);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [pendingPostDelete, setPendingPostDelete] = useState(false);
   const [pendingCommentId, setPendingCommentId] = useState<string | null>(null);
   const [reportTarget, setReportTarget] = useState<{ commentId?: string } | null>(null);
+  const [viewingProfile, setViewingProfile] = useState<UserProfile | null>(null);
 
   const loadPost = useCallback(async () => {
     const [postRes, commentsRes] = await Promise.all([
@@ -325,6 +406,12 @@ export default function PostDetailModal({ postId, idToken, currentUserId, onClos
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmitComment(); }
   };
 
+  const handleAuthorClick = async (userId: string) => {
+    if (userId === currentUserId) return;
+    const res = await getUserProfile(userId, idToken);
+    if (res.success && res.data) setViewingProfile(res.data);
+  };
+
   if (!post) {
     if (inline) return <div className="flex-1 flex items-center justify-center"><div className="w-8 h-8 border-4 border-orange-400 border-t-transparent rounded-full animate-spin" /></div>;
     return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"><div className="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin" /></div>;
@@ -333,7 +420,7 @@ export default function PostDetailModal({ postId, idToken, currentUserId, onClos
   const isMyPost = post.userId === currentUserId;
   const contentProps = {
     post, comments, input, replyTo, imageIdx, submitting, isMyPost,
-    currentUserId, idToken,
+    currentUserId, idToken, lightboxOpen,
     onClose, onDeletePost: handleDeletePost, onLike: handleLike,
     onReport: handleReport, onSubmitComment: handleSubmitComment,
     onDeleteComment: handleDeleteComment,
@@ -342,6 +429,9 @@ export default function PostDetailModal({ postId, idToken, currentUserId, onClos
     onImageIdx: setImageIdx,
     onInputChange: setInput,
     onKeyDown: handleKeyDown,
+    onImageClick: () => setLightboxOpen(true),
+    onLightboxClose: () => setLightboxOpen(false),
+    onAuthorClick: handleAuthorClick,
   };
 
   const confirmDialogs = (
@@ -366,7 +456,7 @@ export default function PostDetailModal({ postId, idToken, currentUserId, onClos
       )}
       {reportTarget !== null && (
         <ReportModal
-          targetName={reportTarget.commentId ? '댓글' : post.displayName}
+          targetName={reportTarget.commentId ? '댓글' : '이 게시글'}
           reportTypes={POST_REPORT_TYPES}
           onSubmit={async (reason) => {
             await reportContent(
@@ -375,6 +465,12 @@ export default function PostDetailModal({ postId, idToken, currentUserId, onClos
             );
           }}
           onClose={() => setReportTarget(null)}
+        />
+      )}
+      {viewingProfile && (
+        <UserProfilePopup
+          profile={viewingProfile}
+          onClose={() => setViewingProfile(null)}
         />
       )}
     </>

@@ -518,11 +518,7 @@ export default function PetProfile({
 
         <label className="flex flex-col items-center mb-3 cursor-pointer">
           <div className="w-16 h-16 rounded-full bg-orange-50 border-2 border-orange-200 overflow-hidden flex items-center justify-center mb-1">
-            {addDraft.photoUrl ? (
-              <img src={addDraft.photoUrl} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-2xl">🐶</span>
-            )}
+            <img src={addDraft.photoUrl ?? '/bichon.png'} alt="" className="w-full h-full object-cover" />
           </div>
           <span className="text-xs text-orange-500">사진 추가</span>
           <input type="file" accept="image/*" className="hidden" onChange={handleAddPhotoChange} />
@@ -651,11 +647,7 @@ export default function PetProfile({
         <div className="flex flex-col items-center mb-3 shrink-0">
           <label className="flex flex-col items-center cursor-pointer">
             <div className="w-16 h-16 rounded-full bg-orange-50 border-2 border-orange-200 overflow-hidden flex items-center justify-center mb-1">
-              {draft.photoUrl ? (
-                <img src={draft.photoUrl} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <span className="text-2xl">🐶</span>
-              )}
+              <img src={draft.photoUrl ?? '/bichon.png'} alt="" className="w-full h-full object-cover" />
             </div>
             <input type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
           </label>
@@ -791,11 +783,12 @@ export default function PetProfile({
       {/* 강아지 정보 */}
       <div className="flex-1 flex flex-col items-center justify-center gap-3 py-3">
         <div className="w-24 h-24 rounded-full bg-orange-50 border-[3px] border-orange-200 overflow-hidden flex items-center justify-center shrink-0">
-          {pet.photoUrl ? (
-            <img src={pet.photoUrl} alt={pet.name} className="w-full h-full object-cover" />
-          ) : (
-            <span className="text-4xl">🐶</span>
-          )}
+          <img
+            src={pet.photoUrl ?? '/bichon.png'}
+            alt={pet.name}
+            className="w-full h-full object-cover"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/bichon.png'; }}
+          />
         </div>
 
         <div className="text-center min-w-0 w-full">

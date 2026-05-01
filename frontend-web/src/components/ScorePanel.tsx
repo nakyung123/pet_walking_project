@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   getNotifications,
   markAllNotificationsRead,
@@ -44,9 +45,68 @@ interface ScorePanelProps {
 
 interface PointRecord {
   timestamp: number;
-  type: 'marking' | 'occupy';
+  type: 'marking' | 'mission' | 'occupy';
   points: number;
   label: string;
+}
+
+const SCORE_TYPE_ICON: Record<string, string> = {
+  marking: '🐾',
+  mission: '⭐',
+  occupy: '🏆',
+};
+
+function ScoreHistoryModal({ onClose }: { onClose: () => void }) {
+  const [history, setHistory] = useState<PointRecord[]>([]);
+
+  useEffect(() => {
+    try {
+      const records: PointRecord[] = JSON.parse(localStorage.getItem('pointHistory') || '[]');
+      setHistory(records.sort((a, b) => b.timestamp - a.timestamp));
+    } catch {
+      setHistory([]);
+    }
+  }, []);
+
+  const fmt = (ts: number) => {
+    const d = new Date(ts);
+    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl flex flex-col max-h-[80vh]">
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
+          <p className="text-base font-bold text-gray-900">점수 내역</p>
+          <button onClick={onClose} className="w-7 h-7 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-sm">✕</button>
+        </div>
+
+        <div className="border-t border-gray-100 mx-5" />
+
+        <div className="overflow-y-auto flex-1 px-5 py-3 [&::-webkit-scrollbar]:hidden">
+          {history.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-8">아직 점수 내역이 없어요</p>
+          ) : (
+            <div className="space-y-0.5">
+              {history.map((h, i) => (
+                <div key={i} className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-xl">{SCORE_TYPE_ICON[h.type] ?? '📌'}</span>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">{h.label}</p>
+                      <p className="text-[11px] text-gray-400">{fmt(h.timestamp)}</p>
+                    </div>
+                  </div>
+                  <span className="text-sm font-bold text-orange-500">+{h.points.toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function ScorePanel({
@@ -57,9 +117,7 @@ export default function ScorePanel({
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const notifRef = useRef<HTMLDivElement>(null);
-  const [showPointHistory, setShowPointHistory] = useState(false);
-  const [pointHistory, setPointHistory] = useState<PointRecord[]>([]);
-  const pointHistoryRef = useRef<HTMLDivElement>(null);
+  const [showScoreHistory, setShowScoreHistory] = useState(false);
 
   const fetchNotifications = useCallback(async () => {
     if (!idToken) return;
@@ -91,7 +149,8 @@ export default function ScorePanel({
 
   // 패널 열릴 때 전체 읽음 처리
   useEffect(() => {
-    if (!showNotif || !idToken || unreadCount === 0) return;
+    if (!showNotif || !idToken) return;
+    if (unreadCount === 0) return;
     markAllNotificationsRead(idToken)
       .then(() => {
         setUnreadCount(0);
@@ -112,26 +171,8 @@ export default function ScorePanel({
     return () => document.removeEventListener('mousedown', handler);
   }, [showNotif]);
 
-  // 외부 클릭 시 포인트 히스토리 닫기
-  useEffect(() => {
-    if (!showPointHistory) return;
-    const handler = (e: MouseEvent) => {
-      if (pointHistoryRef.current && !pointHistoryRef.current.contains(e.target as Node)) {
-        setShowPointHistory(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showPointHistory]);
-
   const handleScoreClick = () => {
-    try {
-      const records: PointRecord[] = JSON.parse(localStorage.getItem('pointHistory') || '[]');
-      setPointHistory(records.slice().reverse());
-    } catch {
-      setPointHistory([]);
-    }
-    setShowPointHistory((v) => !v);
+    setShowScoreHistory(true);
   };
 
   const handleDeleteNotification = async (e: React.MouseEvent, id: string) => {
@@ -141,9 +182,10 @@ export default function ScorePanel({
     deleteNotification(id, idToken).catch(() => {});
   };
 
-  const totalBadge = unreadCount + (expiringCount > 0 ? 1 : 0);
+  const totalBadge = showNotif ? 0 : unreadCount + (expiringCount > 0 ? 1 : 0);
 
   return (
+    <>
     <div className="absolute top-0 left-0 right-0 z-10">
       <div
         className="mx-3 mt-3 bg-white/92 backdrop-blur-md rounded-[24px] shadow-lg px-5 py-4 grid grid-cols-3 items-center overflow-visible relative"
@@ -158,36 +200,13 @@ export default function ScorePanel({
         {/* 중앙: 점수 pill + 원형 프로필 + 이름 */}
         <div className="flex justify-center items-center overflow-visible">
           <div className="bg-gray-100 rounded-full flex items-center px-5 py-2 overflow-visible">
-            <div className="relative" ref={pointHistoryRef}>
+            <div className="relative">
             <button
               onClick={handleScoreClick}
               className="text-base text-gray-600 whitespace-nowrap hover:text-orange-500 transition-colors"
             >
               내 점수: <span className="font-bold text-gray-900">{score.toLocaleString()}</span>
             </button>
-            {showPointHistory && (
-              <div className="absolute left-1/2 -translate-x-1/2 top-[calc(100%+12px)] w-64 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-50">
-                <div className="px-4 py-3 border-b border-gray-100">
-                  <p className="text-sm font-bold text-gray-900">포인트 내역</p>
-                </div>
-                <ul className="max-h-60 overflow-y-auto divide-y divide-gray-50">
-                  {pointHistory.length === 0 ? (
-                    <li className="text-xs text-gray-400 text-center py-5">포인트 내역이 없어요</li>
-                  ) : (
-                    pointHistory.map((r, i) => (
-                      <li key={i} className="flex items-center gap-3 px-4 py-2.5">
-                        <span className="text-base shrink-0">{r.type === 'occupy' ? '🏆' : '🐾'}</span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-gray-800">{r.label}</p>
-                          <p className="text-[10px] text-gray-400">{new Date(r.timestamp).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
-                        </div>
-                        <span className="text-xs font-bold text-orange-500 shrink-0">+{r.points.toLocaleString()}</span>
-                      </li>
-                    ))
-                  )}
-                </ul>
-              </div>
-            )}
             </div>
 
             <div className="relative shrink-0 mx-4" style={{ width: 96, height: 36 }}>
@@ -340,5 +359,9 @@ export default function ScorePanel({
         </div>
       </div>
     </div>
+
+    {showScoreHistory && typeof document !== 'undefined' &&
+      createPortal(<ScoreHistoryModal onClose={() => setShowScoreHistory(false)} />, document.body)}
+    </>
   );
 }
