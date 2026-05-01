@@ -32,10 +32,9 @@ const mockPostRow = {
 describe('communityService.toggleLike', () => {
   it('좋아요 없을 때 누르면 liked: true, likeCount가 증가한다', async () => {
     (pool.query as jest.Mock)
-      .mockResolvedValueOnce({ rows: [] }) // SELECT 기존 좋아요 없음
-      .mockResolvedValueOnce(undefined) // INSERT post_likes
-      .mockResolvedValueOnce(undefined) // UPDATE like_count + 1
-      .mockResolvedValueOnce({ rows: [{ like_count: 1 }] }); // SELECT like_count
+      .mockResolvedValueOnce({ rowCount: 0 }) // DELETE — 기존 좋아요 없음
+      .mockResolvedValueOnce({ rows: [] }) // INSERT post_likes
+      .mockResolvedValueOnce({ rows: [{ like_count: 1 }] }); // UPDATE RETURNING
 
     const result = await communityService.toggleLike('post-uuid', 'user-001');
 
@@ -45,10 +44,8 @@ describe('communityService.toggleLike', () => {
 
   it('이미 좋아요 눌렀을 때 다시 누르면 liked: false (토글)', async () => {
     (pool.query as jest.Mock)
-      .mockResolvedValueOnce({ rows: [{ 1: 1 }] }) // SELECT 기존 좋아요 있음
-      .mockResolvedValueOnce(undefined) // DELETE post_likes
-      .mockResolvedValueOnce(undefined) // UPDATE like_count - 1
-      .mockResolvedValueOnce({ rows: [{ like_count: 0 }] });
+      .mockResolvedValueOnce({ rowCount: 1 }) // DELETE — 기존 좋아요 삭제
+      .mockResolvedValueOnce({ rows: [{ like_count: 0 }] }); // UPDATE RETURNING
 
     const result = await communityService.toggleLike('post-uuid', 'user-001');
 
