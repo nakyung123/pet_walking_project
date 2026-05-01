@@ -132,7 +132,8 @@ export interface ChatMessage {
   id: number;
   conversationId: string;
   senderId: string;
-  text: string;
+  text: string | null;
+  imageUrl: string | null;
   createdAt: string;
 }
 
@@ -147,6 +148,7 @@ export interface ConversationSummary {
   lastMessage: string | null;
   lastMessageAt: string | null;
   unreadCount: number;
+  isOtherDeleted: boolean;
 }
 
 export async function startConversation(otherUserId: string, idToken: string) {
@@ -165,12 +167,20 @@ export async function getConversationMessages(convId: string, idToken: string) {
   return request<ChatMessage[]>(`/api/chat/${encodeURIComponent(convId)}/messages`, undefined, idToken);
 }
 
-export async function sendChatMessage(convId: string, text: string, idToken: string) {
+export async function sendChatMessage(convId: string, text: string | null, idToken: string, imageUrl?: string) {
   return request<ChatMessage>(
     `/api/chat/${encodeURIComponent(convId)}/messages`,
-    { method: 'POST', body: JSON.stringify({ text }) },
+    { method: 'POST', body: JSON.stringify({ text, imageUrl }) },
     idToken,
   );
+}
+
+export async function deleteConversation(convId: string, idToken: string) {
+  return request<null>(`/api/chat/${encodeURIComponent(convId)}`, { method: 'DELETE' }, idToken);
+}
+
+export async function withdrawMe(idToken: string) {
+  return request<null>('/api/users/me', { method: 'DELETE' }, idToken);
 }
 
 // ─── 커뮤니티 ────────────────────────────────────────────────
@@ -339,4 +349,20 @@ export async function markNotificationRead(id: string, idToken: string) {
     { method: 'PATCH' },
     idToken,
   );
+}
+
+export async function markChatNotificationsRead(idToken: string) {
+  return request<null>('/api/notifications/read/chat', { method: 'PATCH' }, idToken);
+}
+
+export async function markConversationNotificationsRead(convId: string, idToken: string) {
+  return request<null>(
+    `/api/notifications/read/chat/${encodeURIComponent(convId)}`,
+    { method: 'PATCH' },
+    idToken,
+  );
+}
+
+export async function deleteNotification(id: string, idToken: string) {
+  return request<null>(`/api/notifications/${id}`, { method: 'DELETE' }, idToken);
 }

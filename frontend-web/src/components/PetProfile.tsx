@@ -579,7 +579,8 @@ export default function PetProfile({
               onChange={(e) => {
                 const raw = e.target.value.replace(/[^0-9.]/g, '');
                 const clean = raw.split('.').length > 2 ? raw.slice(0, raw.lastIndexOf('.')) : raw;
-                setAddDraft((prev) => ({ ...prev, weight: clean === '' ? 0 : (parseFloat(clean) || prev.weight) }));
+                const val = parseFloat(clean);
+                setAddDraft((prev) => ({ ...prev, weight: clean === '' ? 0 : (isNaN(val) ? prev.weight : Math.min(val, 99)) }));
               }}
               className="w-16 text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400"
             />
@@ -712,7 +713,8 @@ export default function PetProfile({
               onChange={(e) => {
                 const raw = e.target.value.replace(/[^0-9.]/g, '');
                 const clean = raw.split('.').length > 2 ? raw.slice(0, raw.lastIndexOf('.')) : raw;
-                setDraft((prev) => ({ ...prev, weight: clean === '' ? 0 : (parseFloat(clean) || prev.weight) }));
+                const val = parseFloat(clean);
+                setDraft((prev) => ({ ...prev, weight: clean === '' ? 0 : (isNaN(val) ? prev.weight : Math.min(val, 99)) }));
               }}
               className="w-16 text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400"
             />

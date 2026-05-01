@@ -7,6 +7,15 @@ import {
   deleteComment, deletePost, reportContent, Post, Comment,
 } from '@/services/api';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import ReportModal from '@/components/ReportModal';
+
+const POST_REPORT_TYPES = [
+  '욕설 / 비방',
+  '스팸 / 도배',
+  '부적절한 내용',
+  '허위 정보',
+  '기타',
+];
 
 interface Props {
   postId: string;
@@ -114,10 +123,16 @@ function PostDetailContent({
   return (
     <>
       <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 shrink-0">
-        <button onClick={onClose} className="text-gray-400 text-sm">{'<'} 뒤로</button>
+        <button
+          onClick={onClose}
+          className="w-7 h-7 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 text-sm"
+        >✕</button>
         <div className="flex gap-2">
           {!isMyPost && (
-            <button onClick={() => onReport()} className="text-xs text-gray-400">신고</button>
+            <button
+              onClick={() => onReport()}
+              className="shrink-0 px-3 h-8 rounded-full bg-gray-100 text-gray-600 text-xs font-bold border border-gray-200 hover:bg-gray-200 transition-colors"
+            >신고</button>
           )}
           {isMyPost && (
             <button onClick={onDeletePost} className="text-xs text-red-400">삭제</button>
@@ -196,14 +211,22 @@ function PostDetailContent({
           </div>
         )}
         <div className="flex gap-2 items-end">
-          <textarea
-            value={input}
-            onChange={(e) => onInputChange(e.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder="댓글을 입력하세요..."
-            rows={1}
-            className="flex-1 px-4 py-2.5 rounded-2xl border border-gray-200 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-orange-400 resize-none"
-          />
+          <div className="flex-1">
+            <textarea
+              value={input}
+              onChange={(e) => onInputChange(e.target.value)}
+              onKeyDown={onKeyDown}
+              maxLength={300}
+              placeholder="댓글을 입력하세요... (300자 이내)"
+              rows={1}
+              className="w-full px-4 py-2.5 rounded-2xl border border-gray-200 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-orange-400 resize-none"
+            />
+            {input.length > 0 && (
+              <p className={`text-right text-[10px] mt-0.5 ${input.length >= 280 ? 'text-orange-500' : 'text-gray-400'}`}>
+                {input.length}/300자
+              </p>
+            )}
+          </div>
           <button
             onClick={onSubmitComment}
             disabled={!input.trim() || submitting}
@@ -229,6 +252,7 @@ export default function PostDetailModal({ postId, idToken, currentUserId, onClos
   const [submitting, setSubmitting] = useState(false);
   const [pendingPostDelete, setPendingPostDelete] = useState(false);
   const [pendingCommentId, setPendingCommentId] = useState<string | null>(null);
+  const [reportTarget, setReportTarget] = useState<{ commentId?: string } | null>(null);
 
   const loadPost = useCallback(async () => {
     const [postRes, commentsRes] = await Promise.all([
@@ -293,9 +317,8 @@ export default function PostDetailModal({ postId, idToken, currentUserId, onClos
     onDeleted();
   };
 
-  const handleReport = async (commentId?: string) => {
-    await reportContent({ postId: commentId ? undefined : postId, commentId, reason: '부적절한 내용' }, idToken);
-    alert('신고가 접수되었습니다.');
+  const handleReport = (commentId?: string) => {
+    setReportTarget({ commentId });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -340,6 +363,19 @@ export default function PostDetailModal({ postId, idToken, currentUserId, onClos
           onCancel={() => setPendingCommentId(null)}
         />,
         document.body,
+      )}
+      {reportTarget !== null && (
+        <ReportModal
+          targetName={reportTarget.commentId ? '댓글' : post.displayName}
+          reportTypes={POST_REPORT_TYPES}
+          onSubmit={async (reason) => {
+            await reportContent(
+              { postId: reportTarget.commentId ? undefined : postId, commentId: reportTarget.commentId, reason },
+              idToken,
+            );
+          }}
+          onClose={() => setReportTarget(null)}
+        />
       )}
     </>
   );

@@ -143,6 +143,10 @@ export async function runMigrations(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_notifications_user
       ON notifications (user_id, is_read, created_at DESC)
   `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_notifications_conv
+      ON notifications (user_id, (metadata->>'conversationId'))
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS conversations (
@@ -165,6 +169,24 @@ export async function runMigrations(): Promise<void> {
     )
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages (conversation_id, created_at)`);
+
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bonus_score INTEGER NOT NULL DEFAULT 0`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS image_url TEXT`);
+  await pool.query(`ALTER TABLE messages ALTER COLUMN text DROP NOT NULL`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_daily_missions (
+      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id      TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+      mission_date DATE NOT NULL,
+      mission_type TEXT NOT NULL,
+      bonus_points INTEGER NOT NULL DEFAULT 0,
+      created_at   TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(user_id, mission_date, mission_type)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_daily_missions_user ON user_daily_missions (user_id, mission_date)`);
 
   logger.info('[Migration] 마이그레이션 완료');
 }

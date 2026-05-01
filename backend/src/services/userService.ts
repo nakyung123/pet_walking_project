@@ -41,11 +41,11 @@ const LEADERBOARD_QUERY = `
   SELECT
     u.user_id,
     u.display_name,
-    COUNT(t.tile_id)::INTEGER                    AS tile_count,
-    COALESCE(SUM(t.occupancy_score), 0)::INTEGER AS total_score
+    COUNT(t.tile_id)::INTEGER                                          AS tile_count,
+    (COALESCE(SUM(t.occupancy_score), 0) + u.bonus_score)::INTEGER    AS total_score
   FROM users u
   LEFT JOIN tiles t ON t.occupant_user_id = u.user_id
-  GROUP BY u.user_id, u.display_name
+  GROUP BY u.user_id, u.display_name, u.bonus_score
 `;
 
 const toEntry = (row: { user_id: string; display_name: string; tile_count: number; total_score: number }, i: number): LeaderboardEntry => ({
@@ -64,13 +64,13 @@ export const getNearbyLeaderboard = async (lat: number, lng: number, radiusKm: n
     SELECT
       u.user_id,
       u.display_name,
-      COUNT(t.tile_id)::INTEGER                    AS tile_count,
-      COALESCE(SUM(t.occupancy_score), 0)::INTEGER AS total_score
+      COUNT(t.tile_id)::INTEGER                                         AS tile_count,
+      (COALESCE(SUM(t.occupancy_score), 0) + u.bonus_score)::INTEGER   AS total_score
     FROM users u
     JOIN tiles t ON t.occupant_user_id = u.user_id
     WHERE t.center_lat BETWEEN $1 AND $2
       AND t.center_lng BETWEEN $3 AND $4
-    GROUP BY u.user_id, u.display_name
+    GROUP BY u.user_id, u.display_name, u.bonus_score
   `;
   const [byTileRes, byScoreRes] = await Promise.all([
     pool.query<{ user_id: string; display_name: string; tile_count: number; total_score: number }>(
@@ -88,8 +88,15 @@ export const getNearbyLeaderboard = async (lat: number, lng: number, radiusKm: n
   };
 };
 
-/** 타일 수 / 점수 각각 상위 10명 조회 */
+let leaderboardCache: { data: LeaderboardData; ts: number } | null = null;
+const LEADERBOARD_TTL = 30_000;
+
+/** 타일 수 / 점수 각각 상위 10명 조회 (30초 캐시) */
 export const getLeaderboard = async (): Promise<LeaderboardData> => {
+  if (leaderboardCache && Date.now() - leaderboardCache.ts < LEADERBOARD_TTL) {
+    return leaderboardCache.data;
+  }
+
   const [byTileRes, byScoreRes] = await Promise.all([
     pool.query<{ user_id: string; display_name: string; tile_count: number; total_score: number }>(
       `${LEADERBOARD_QUERY} ORDER BY tile_count DESC, total_score DESC LIMIT 10`
@@ -99,8 +106,14 @@ export const getLeaderboard = async (): Promise<LeaderboardData> => {
     ),
   ]);
 
-  return {
+  const data = {
     byTile:  byTileRes.rows.map(toEntry),
     byScore: byScoreRes.rows.map(toEntry),
   };
+  leaderboardCache = { data, ts: Date.now() };
+  return data;
+};
+
+export const softDeleteUser = async (userId: string): Promise<void> => {
+  await pool.query(`UPDATE users SET is_deleted = TRUE WHERE user_id = $1`, [userId]);
 };

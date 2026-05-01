@@ -31,6 +31,7 @@ interface NaverMapProps {
   flyTo?: { lat: number; lng: number; zoom: number } | null;
   visibleRivalUserId?: string | null;
   showAllRivals?: boolean;
+  stolenTileIds?: string[];
 }
 
 declare global {
@@ -82,21 +83,75 @@ function calcPreviewCorners(lat: number, lng: number): [number, number][] {
 }
 
 // 상대 유저 색상 팔레트 [fill, stroke]
-// 내 타일 색(녹색·노란색·빨간색)과 겹치지 않는 색상만 사용
+// 내 타일 색(녹색·노란색·빨간색)과 겹치지 않는 색상만 사용 (10가지)
 const RIVAL_COLORS: [string, string][] = [
-  ['rgba(249,115,22,0.45)', '#EA580C'],
-  ['rgba(6,182,212,0.45)',  '#0891B2'],
-  ['rgba(139,92,246,0.45)', '#7C3AED'],
-  ['rgba(236,72,153,0.45)', '#DB2777'],
-  ['rgba(20,184,166,0.45)', '#0D9488'],
-  ['rgba(99,102,241,0.45)', '#4F46E5'],
-  ['rgba(14,165,233,0.45)', '#0284C7'],
+  ['rgba(249,115,22,0.45)',  '#EA580C'],
+  ['rgba(6,182,212,0.45)',   '#0891B2'],
+  ['rgba(139,92,246,0.45)',  '#7C3AED'],
+  ['rgba(236,72,153,0.45)',  '#DB2777'],
+  ['rgba(20,184,166,0.45)',  '#0D9488'],
+  ['rgba(99,102,241,0.45)',  '#4F46E5'],
+  ['rgba(14,165,233,0.45)',  '#0284C7'],
+  ['rgba(245,158,11,0.45)',  '#D97706'],
+  ['rgba(239,68,68,0.45)',   '#DC2626'],
+  ['rgba(16,185,129,0.45)',  '#059669'],
 ];
 
 function hashIndex(uid: string, len: number): number {
   let h = 0;
   for (let i = 0; i < uid.length; i++) h = (h * 31 + uid.charCodeAt(i)) & 0xffff;
   return h % len;
+}
+
+/** 인접 유저 간 색상 충돌을 방지하는 그래프 컬러링 */
+function buildColorMap(tiles: Tile[], myUserId: string): Map<string, number> {
+  const numColors = RIVAL_COLORS.length;
+  const tileToUid = new Map<string, string>();
+  tiles.forEach(t => {
+    if (t.occupantUserId && t.occupantUserId !== myUserId) {
+      tileToUid.set(t.tileId, t.occupantUserId);
+    }
+  });
+
+  const adjacency = new Map<string, Set<string>>();
+  const ensureNode = (uid: string) => { if (!adjacency.has(uid)) adjacency.set(uid, new Set()); };
+
+  tileToUid.forEach((uid, tileId) => {
+    ensureNode(uid);
+    const u = tileId.indexOf('_');
+    const gx = parseInt(tileId.slice(0, u), 10);
+    const gy = parseInt(tileId.slice(u + 1), 10);
+    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]] as [number,number][]) {
+      const neighborUid = tileToUid.get(`${gx + dx}_${gy + dy}`);
+      if (neighborUid && neighborUid !== uid) {
+        ensureNode(neighborUid);
+        adjacency.get(uid)!.add(neighborUid);
+        adjacency.get(neighborUid)!.add(uid);
+      }
+    }
+  });
+
+  const colorMap = new Map<string, number>();
+  [...adjacency.keys()]
+    .sort((a, b) => adjacency.get(b)!.size - adjacency.get(a)!.size)
+    .forEach(uid => {
+      const usedColors = new Set<number>();
+      adjacency.get(uid)!.forEach(n => { if (colorMap.has(n)) usedColors.add(colorMap.get(n)!); });
+      const preferred = hashIndex(uid, numColors);
+      let chosen = preferred;
+      if (usedColors.has(preferred)) {
+        for (let i = 0; i < numColors; i++) {
+          if (!usedColors.has(i)) { chosen = i; break; }
+        }
+      }
+      colorMap.set(uid, chosen);
+    });
+
+  tileToUid.forEach((uid) => {
+    if (!colorMap.has(uid)) colorMap.set(uid, hashIndex(uid, numColors));
+  });
+
+  return colorMap;
 }
 
 /**
@@ -270,7 +325,7 @@ export default function NaverMap({
   userId, tiles, myPosition, initialPosition, tileOwners = {},
   previewPosition, walkPathCoords = [], highlightLatLng,
   onBoundsChange, onCenterChange, onPositionOverride, onUserClick, onTileClick,
-  flyTo, visibleRivalUserId, showAllRivals = false,
+  flyTo, visibleRivalUserId, showAllRivals = false, stolenTileIds = [],
 }: NaverMapProps) {
   const containerRef    = useRef<HTMLDivElement>(null);
   const mapRef          = useRef<naver.maps.Map | null>(null);
@@ -284,6 +339,7 @@ export default function NaverMap({
   const [mapZoom, setMapZoom] = useState(17);
   const highlightPolyRef = useRef<naver.maps.Polygon | null>(null);
   const warningMarkersRef = useRef<naver.maps.Marker[]>([]);
+  const stolenMarkersRef  = useRef<naver.maps.Marker[]>([]);
   const tilesRef = useRef<Tile[]>(tiles);
   const onTileClickRef = useRef(onTileClick);
   const prevPositionRef = useRef<{ lat: number; lng: number } | null>(null);
@@ -381,17 +437,18 @@ export default function NaverMap({
       groups.get(tile.occupantUserId)!.push(tile);
     });
 
+    const colorMap = buildColorMap(tiles, userId);
+
     groups.forEach((userTiles, uid) => {
       const isMine = uid === userId;
       const showRivalTiles = isMine || uid === visibleRivalUserId || showAllRivals;
 
-      const colorIdx = hashIndex(uid, RIVAL_COLORS.length);
+      const colorIdx = colorMap.get(uid) ?? hashIndex(uid, RIVAL_COLORS.length);
       const [rivalFill, rivalStroke] = RIVAL_COLORS[colorIdx];
 
       if (!showRivalTiles) {
-        // 핀 마커만 표시
-        const name = tileOwners[uid];
-        if (!name) return;
+        // 핀 마커만 표시 (tileOwners에 없어도 핀은 렌더링)
+        const name = tileOwners[uid] ?? '';
         const avgGx = userTiles.reduce((s, t) => {
           const u = t.tileId.indexOf('_');
           return s + parseInt(t.tileId.slice(0, u), 10) + 0.5;
@@ -472,9 +529,8 @@ export default function NaverMap({
         polygsRef.current.push(polygon);
       });
 
-      // 상대 유저 핀 마커
-      const name = tileOwners[uid];
-      if (!name) return;
+      // 상대 유저 핀 마커 (tileOwners에 없어도 핀은 렌더링)
+      const name = tileOwners[uid] ?? '';
       const avgGx = userTiles.reduce((s, t) => {
         const u = t.tileId.indexOf('_');
         return s + parseInt(t.tileId.slice(0, u), 10) + 0.5;
@@ -499,6 +555,32 @@ export default function NaverMap({
       labelsRef.current.set(uid, pinMarker);
     });
   }, [tiles, userId, mapReady, tileOwners, visibleRivalUserId, showAllRivals]);
+
+  // 빼앗긴 타일 ⚔️ 마커
+  useEffect(() => {
+    const map = mapRef.current;
+    stolenMarkersRef.current.forEach(m => m.setMap(null));
+    stolenMarkersRef.current = [];
+    if (!map || !mapReady || !window.naver?.maps || stolenTileIds.length === 0) return;
+    stolenTileIds.forEach(tileId => {
+      const u = tileId.indexOf('_');
+      if (u === -1) return;
+      const gx = parseInt(tileId.slice(0, u), 10);
+      const gy = parseInt(tileId.slice(u + 1), 10);
+      const lat = yToLat((gy + 0.5) * TILE_M);
+      const lng = xToLng((gx + 0.5) * TILE_M);
+      const marker = new window.naver.maps.Marker({
+        map,
+        position: new window.naver.maps.LatLng(lat, lng),
+        icon: {
+          content: `<div style="font-size:20px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5))">⚔️</div>`,
+          anchor: new window.naver.maps.Point(10, 10),
+        },
+        zIndex: 20,
+      });
+      stolenMarkersRef.current.push(marker);
+    });
+  }, [stolenTileIds, mapReady]);
 
   // 내 위치 마커 (산책 캐릭터)
   useEffect(() => {

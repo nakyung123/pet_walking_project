@@ -5,6 +5,7 @@ import {
   getNotifications,
   markAllNotificationsRead,
   markNotificationRead,
+  deleteNotification,
   AppNotification,
 } from '@/services/api';
 
@@ -12,7 +13,7 @@ const NOTIF_ICON: Record<AppNotification['type'], string> = {
   tile_stolen:      '⚔️',
   comment_on_post:  '💬',
   like_on_post:     '❤️',
-  new_chat_message: '✉️',
+  new_chat_message: '💬',
   decay_warning:    '⚠️',
   mission_complete: '🎯',
   badge_earned:     '🏅',
@@ -30,6 +31,7 @@ interface ScorePanelProps {
   score: number;
   tileCount: number;
   userName: string;
+  photoUrl?: string;
   connected?: boolean;
   expiringCount?: number;
   idToken?: string;
@@ -37,16 +39,27 @@ interface ScorePanelProps {
   onProfile: () => void;
   onSettings: () => void;
   onUnreadChatChange?: (count: number) => void;
+  onStolenTiles?: (tileIds: string[]) => void;
+}
+
+interface PointRecord {
+  timestamp: number;
+  type: 'marking' | 'occupy';
+  points: number;
+  label: string;
 }
 
 export default function ScorePanel({
-  score, tileCount, userName, expiringCount = 0, idToken,
-  onWalkLog, onProfile, onSettings, onUnreadChatChange,
+  score, tileCount, userName, photoUrl, expiringCount = 0, idToken,
+  onWalkLog, onProfile, onSettings, onUnreadChatChange, onStolenTiles,
 }: ScorePanelProps) {
   const [showNotif, setShowNotif] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const notifRef = useRef<HTMLDivElement>(null);
+  const [showPointHistory, setShowPointHistory] = useState(false);
+  const [pointHistory, setPointHistory] = useState<PointRecord[]>([]);
+  const pointHistoryRef = useRef<HTMLDivElement>(null);
 
   const fetchNotifications = useCallback(async () => {
     if (!idToken) return;
@@ -59,6 +72,11 @@ export default function ScorePanel({
           (n) => n.type === 'new_chat_message' && !n.isRead,
         ).length;
         onUnreadChatChange?.(chatUnread);
+        const sixHoursAgo = Date.now() - 6 * 60 * 60 * 1000;
+        const stolenIds = res.data.notifications
+          .filter((n) => n.type === 'tile_stolen' && new Date(n.createdAt).getTime() > sixHoursAgo && n.metadata?.tileId)
+          .map((n) => n.metadata!.tileId as string);
+        onStolenTiles?.(stolenIds);
       }
     } catch (e) {
       console.error('[ScorePanel] 알림 조회 실패:', e);
@@ -94,6 +112,35 @@ export default function ScorePanel({
     return () => document.removeEventListener('mousedown', handler);
   }, [showNotif]);
 
+  // 외부 클릭 시 포인트 히스토리 닫기
+  useEffect(() => {
+    if (!showPointHistory) return;
+    const handler = (e: MouseEvent) => {
+      if (pointHistoryRef.current && !pointHistoryRef.current.contains(e.target as Node)) {
+        setShowPointHistory(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showPointHistory]);
+
+  const handleScoreClick = () => {
+    try {
+      const records: PointRecord[] = JSON.parse(localStorage.getItem('pointHistory') || '[]');
+      setPointHistory(records.slice().reverse());
+    } catch {
+      setPointHistory([]);
+    }
+    setShowPointHistory((v) => !v);
+  };
+
+  const handleDeleteNotification = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (!idToken) return;
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    deleteNotification(id, idToken).catch(() => {});
+  };
+
   const totalBadge = unreadCount + (expiringCount > 0 ? 1 : 0);
 
   return (
@@ -108,19 +155,52 @@ export default function ScorePanel({
           <span className="text-base font-bold text-gray-900 whitespace-nowrap">퍼피랜드</span>
         </div>
 
-        {/* 중앙: 점수 pill + 원형 로고 + 이름 */}
+        {/* 중앙: 점수 pill + 원형 프로필 + 이름 */}
         <div className="flex justify-center items-center overflow-visible">
           <div className="bg-gray-100 rounded-full flex items-center px-5 py-2 overflow-visible">
-            <span className="text-base text-gray-600 whitespace-nowrap">
+            <div className="relative" ref={pointHistoryRef}>
+            <button
+              onClick={handleScoreClick}
+              className="text-base text-gray-600 whitespace-nowrap hover:text-orange-500 transition-colors"
+            >
               내 점수: <span className="font-bold text-gray-900">{score.toLocaleString()}</span>
-            </span>
+            </button>
+            {showPointHistory && (
+              <div className="absolute left-1/2 -translate-x-1/2 top-[calc(100%+12px)] w-64 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-50">
+                <div className="px-4 py-3 border-b border-gray-100">
+                  <p className="text-sm font-bold text-gray-900">포인트 내역</p>
+                </div>
+                <ul className="max-h-60 overflow-y-auto divide-y divide-gray-50">
+                  {pointHistory.length === 0 ? (
+                    <li className="text-xs text-gray-400 text-center py-5">포인트 내역이 없어요</li>
+                  ) : (
+                    pointHistory.map((r, i) => (
+                      <li key={i} className="flex items-center gap-3 px-4 py-2.5">
+                        <span className="text-base shrink-0">{r.type === 'occupy' ? '🏆' : '🐾'}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-gray-800">{r.label}</p>
+                          <p className="text-[10px] text-gray-400">{new Date(r.timestamp).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                        </div>
+                        <span className="text-xs font-bold text-orange-500 shrink-0">+{r.points.toLocaleString()}</span>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              </div>
+            )}
+            </div>
 
             <div className="relative shrink-0 mx-4" style={{ width: 96, height: 36 }}>
               <div
                 className="absolute bg-white rounded-full shadow-lg border-2 border-gray-200 overflow-hidden p-2"
                 style={{ width: 96, height: 96, left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }}
               >
-                <img src="/bichon.png" alt="강아지" className="w-full h-full object-contain" />
+                <img
+                  src={photoUrl ?? '/bichon.png'}
+                  alt="강아지"
+                  className="w-full h-full object-cover rounded-full"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/bichon.png'; }}
+                />
               </div>
             </div>
 
@@ -194,7 +274,16 @@ export default function ScorePanel({
                             <p className={`text-sm font-semibold truncate ${!n.isRead ? 'text-gray-900' : 'text-gray-600'}`}>
                               {n.title}
                             </p>
-                            {!n.isRead && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />}
+                            <div className="flex items-center gap-1 shrink-0">
+                              {!n.isRead && <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />}
+                              <button
+                                onClick={(e) => handleDeleteNotification(e, n.id)}
+                                className="w-5 h-5 flex items-center justify-center rounded-full text-gray-300 hover:text-gray-500 hover:bg-gray-100 transition-colors text-xs"
+                                aria-label="알림 삭제"
+                              >
+                                ✕
+                              </button>
+                            </div>
                           </div>
                           <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">{n.message}</p>
                           <p className="text-[10px] text-gray-400 mt-1">{timeAgo(n.createdAt)}</p>

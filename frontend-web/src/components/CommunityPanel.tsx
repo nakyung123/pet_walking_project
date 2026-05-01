@@ -257,22 +257,31 @@ export default function CommunityPanel({ idToken, currentUserId, onClose }: Prop
               </div>
 
               {/* 제목 */}
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                maxLength={60}
-                placeholder="제목을 입력하세요"
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-orange-400 bg-white"
-              />
+              <div>
+                <input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  maxLength={60}
+                  placeholder="제목을 입력하세요"
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-orange-400 bg-white"
+                />
+                <p className="text-right text-[11px] text-gray-400 mt-1">{title.length}/60자</p>
+              </div>
 
               {/* 본문 */}
-              <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="내용을 입력하세요"
-                rows={9}
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-orange-400 resize-none bg-white"
-              />
+              <div>
+                <textarea
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  maxLength={500}
+                  placeholder="내용을 입력하세요 (500자 이내)"
+                  rows={7}
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-orange-400 resize-none bg-white"
+                />
+                <p className={`text-right text-[11px] mt-1 ${content.length >= 480 ? 'text-orange-500' : 'text-gray-400'}`}>
+                  {content.length}/500자
+                </p>
+              </div>
 
               {/* 이미지 첨부 */}
               <div className="flex gap-2">

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 
-const REPORT_TYPES = [
+const DEFAULT_REPORT_TYPES = [
   '욕설 / 비방',
   '스팸',
   '위치 조작 의심',
@@ -13,13 +13,28 @@ const REPORT_TYPES = [
 
 interface ReportModalProps {
   targetName: string;
+  reportTypes?: string[];
+  onSubmit?: (reason: string) => Promise<void>;
   onClose: () => void;
 }
 
-export default function ReportModal({ targetName, onClose }: ReportModalProps) {
+export default function ReportModal({ targetName, reportTypes, onSubmit, onClose }: ReportModalProps) {
+  const types = reportTypes ?? DEFAULT_REPORT_TYPES;
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!selected || submitting) return;
+    setSubmitting(true);
+    try {
+      await onSubmit?.(selected);
+      setSubmitted(true);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return createPortal(
     <div className="fixed inset-0 z-[70] flex items-center justify-center px-5">
@@ -51,11 +66,11 @@ export default function ReportModal({ targetName, onClose }: ReportModalProps) {
 
             <div className="px-5 py-4 flex flex-col gap-3">
               <p className="text-xs text-gray-500">
-                <span className="font-bold text-gray-800">{targetName}</span> 님을 신고하는 이유를 선택해주세요.
+                <span className="font-bold text-gray-800">{targetName}</span>을(를) 신고하는 이유를 선택해주세요.
               </p>
 
               <div className="flex flex-col gap-2">
-                {REPORT_TYPES.map((type) => (
+                {types.map((type) => (
                   <button
                     key={type}
                     onClick={() => setSelected(type)}
@@ -90,11 +105,13 @@ export default function ReportModal({ targetName, onClose }: ReportModalProps) {
                   취소
                 </button>
                 <button
-                  onClick={() => setSubmitted(true)}
-                  disabled={!selected}
+                  onClick={handleSubmit}
+                  disabled={!selected || submitting}
                   className="flex-1 py-3 rounded-2xl bg-orange-400 text-white text-sm font-bold disabled:opacity-40"
                 >
-                  신고하기
+                  {submitting ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
+                  ) : '신고하기'}
                 </button>
               </div>
             </div>

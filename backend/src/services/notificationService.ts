@@ -66,3 +66,27 @@ export async function markOneRead(id: string, userId: string): Promise<void> {
     [id, userId],
   );
 }
+
+export async function markChatNotificationsRead(userId: string): Promise<void> {
+  await pool.query(
+    `UPDATE notifications SET is_read = true
+     WHERE user_id = $1 AND type = 'new_chat_message' AND is_read = false`,
+    [userId],
+  );
+}
+
+export async function markConversationNotificationsRead(userId: string, convId: string): Promise<void> {
+  await pool.query(
+    `UPDATE notifications SET is_read = true
+     WHERE user_id = $1 AND type = 'new_chat_message' AND is_read = false
+       AND metadata->>'conversationId' = $2`,
+    [userId, convId],
+  );
+}
+
+export async function deleteNotification(id: string, userId: string): Promise<void> {
+  await pool.query(
+    `DELETE FROM notifications WHERE id = $1 AND user_id = $2`,
+    [id, userId],
+  );
+}

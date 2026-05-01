@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { upsertUser } from '../services/userService';
+import { upsertUser, softDeleteUser } from '../services/userService';
 import { ApiResponse, User, UserProfile } from '../types';
 import logger from '../utils/logger';
 import pool from '../db/pool';
@@ -53,12 +53,12 @@ export const getProfile = async (
     }>(
       `SELECT u.user_id, u.display_name, u.dog_name,
               u.dog_breed, u.dog_age, u.dog_personality, u.photo_url,
-              COALESCE(SUM(t.occupancy_score), 0) AS total_score,
+              COALESCE(SUM(t.occupancy_score), 0) + COALESCE(u.bonus_score, 0) AS total_score,
               COUNT(t.tile_id) AS tile_count
        FROM users u
        LEFT JOIN tiles t ON t.occupant_user_id = u.user_id
        WHERE u.user_id = $1
-       GROUP BY u.user_id`,
+       GROUP BY u.user_id, u.bonus_score`,
       [userId],
     );
     if (result.rows.length === 0) {
@@ -118,13 +118,15 @@ export const getMyScore = async (
     const uid = (req as Request & { uid: string }).uid;
     const result = await pool.query<{ total_score: string; tile_count: string }>(
       `SELECT
-         COALESCE(SUM(occupancy_score), 0) AS total_score,
-         COUNT(*) AS tile_count
-       FROM tiles
-       WHERE occupant_user_id = $1`,
+         COALESCE(SUM(t.occupancy_score), 0) + COALESCE(u.bonus_score, 0) AS total_score,
+         COUNT(t.tile_id) AS tile_count
+       FROM users u
+       LEFT JOIN tiles t ON t.occupant_user_id = u.user_id
+       WHERE u.user_id = $1
+       GROUP BY u.user_id, u.bonus_score`,
       [uid]
     );
-    const { total_score, tile_count } = result.rows[0];
+    const { total_score, tile_count } = result.rows[0] ?? { total_score: '0', tile_count: '0' };
     res.json({
       success: true,
       data: {
@@ -133,6 +135,20 @@ export const getMyScore = async (
       },
       error: null,
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const withdrawUser = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const uid = (req as Request & { uid: string }).uid;
+    await softDeleteUser(uid);
+    res.json({ success: true, data: null, error: null });
   } catch (err) {
     next(err);
   }

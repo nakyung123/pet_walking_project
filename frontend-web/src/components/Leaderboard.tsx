@@ -13,6 +13,7 @@ interface LeaderboardProps {
   /** true로 전달하면 컴포넌트 마운트 시 전체보기 모달이 바로 열림 */
   initialOpen?: boolean;
   onClose?: () => void;
+  onMessage?: (profile: UserProfile) => void;
 }
 
 const RANK_KO = ['1위', '2위', '3위'];
@@ -80,7 +81,7 @@ function EntryRow({
 
 export default function Leaderboard({
   idToken, currentUserId, currentLat, currentLng,
-  initialOpen = false, onClose,
+  initialOpen = false, onClose, onMessage,
 }: LeaderboardProps) {
   const [open, setOpen]               = useState(initialOpen);
   const [tab, setTab]                 = useState<Tab>('score');
@@ -206,7 +207,11 @@ export default function Leaderboard({
 
       {/* 프로필 팝업 */}
       {selectedProfile && createPortal(
-        <UserProfilePopup profile={selectedProfile} onClose={() => setSelectedProfile(null)} />,
+        <UserProfilePopup
+          profile={selectedProfile}
+          onClose={() => setSelectedProfile(null)}
+          onMessage={onMessage ? (profile) => { setSelectedProfile(null); handleClose(); onMessage(profile); } : undefined}
+        />,
         document.body,
       )}
 

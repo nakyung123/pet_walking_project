@@ -103,22 +103,31 @@ export default function PostCreateModal({ idToken, onClose, onCreated }: Props) 
           </div>
 
           {/* 제목 */}
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            maxLength={60}
-            placeholder="제목을 입력하세요"
-            className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-orange-400"
-          />
+          <div>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={60}
+              placeholder="제목을 입력하세요"
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-orange-400"
+            />
+            <p className="text-right text-[11px] text-gray-400 mt-1">{title.length}/60자</p>
+          </div>
 
           {/* 본문 */}
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="내용을 입력하세요"
-            rows={5}
-            className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-orange-400 resize-none"
-          />
+          <div>
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              maxLength={500}
+              placeholder="내용을 입력하세요 (500자 이내)"
+              rows={5}
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-orange-400 resize-none"
+            />
+            <p className={`text-right text-[11px] mt-1 ${content.length >= 480 ? 'text-orange-500' : 'text-gray-400'}`}>
+              {content.length}/500자
+            </p>
+          </div>
 
           {/* 이미지 첨부 */}
           <div>

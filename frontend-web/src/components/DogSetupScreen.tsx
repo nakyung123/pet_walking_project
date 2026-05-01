@@ -138,13 +138,14 @@ export default function DogSetupScreen({ onDone }: Props) {
   const [age, setAge] = useState('');
   const [gender, setGender] = useState<'male' | 'female'>('male');
   const [neutered, setNeutered] = useState(false);
+  const [weight, setWeight] = useState('');
   const [personality, setPersonality] = useState('');
 
   const canStart = name.trim() && breed && age && personality.trim();
 
   const handleStart = () => {
     if (!canStart) return;
-    onDone({ name: name.trim(), breed, age, gender, neutered, personality: personality.trim(), weight: 0 });
+    onDone({ name: name.trim(), breed, age, gender, neutered, personality: personality.trim(), weight: weight ? Math.min(parseFloat(weight) || 0, 99) : 0 });
   };
 
   return (
@@ -240,6 +241,26 @@ export default function DogSetupScreen({ onDone }: Props) {
                   {v ? '했어요' : '안 했어요'}
                 </button>
               ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-gray-600 mb-1.5 block">체중 (선택)</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={weight}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/[^0-9.]/g, '');
+                  const clean = raw.split('.').length > 2 ? raw.slice(0, raw.lastIndexOf('.')) : raw;
+                  const val = parseFloat(clean);
+                  setWeight(clean === '' ? '' : String(isNaN(val) ? weight : Math.min(val, 99)));
+                }}
+                placeholder="예: 5.5"
+                className="w-20 px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:border-orange-400 text-center"
+              />
+              <span className="text-sm text-gray-500">kg</span>
             </div>
           </div>
 

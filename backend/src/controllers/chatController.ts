@@ -5,6 +5,7 @@ import {
   getMessages,
   saveMessage,
   getConversationParticipants,
+  deleteConversation,
 } from '../services/chatService';
 import { emitNewMessage } from '../socket';
 import { createNotification } from '../services/notificationService';
@@ -70,9 +71,9 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
   try {
     const myId = (req as AuthRequest).uid;
     const { convId } = req.params;
-    const { text } = req.body as { text?: string };
+    const { text, imageUrl } = req.body as { text?: string; imageUrl?: string };
 
-    if (!text?.trim()) {
+    if (!text?.trim() && !imageUrl) {
       res.status(400).json({ success: false, data: null, error: '메시지 내용이 없습니다.' });
       return;
     }
@@ -83,21 +84,38 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    const message = await saveMessage(convId, myId, text.trim());
+    const message = await saveMessage(convId, myId, text?.trim() ?? null, imageUrl ?? null);
     emitNewMessage(participants[0], participants[1], message);
 
     const recipientId = participants.find((id) => id !== myId);
     if (recipientId) {
+      const senderName = (req as AuthRequest).displayName ?? '알 수 없음';
+      const notifBody = imageUrl ? '사진을 보냈어요' : (text!.trim().length > 30 ? `${text!.trim().slice(0, 30)}…` : text!.trim());
       createNotification(
         recipientId,
         'new_chat_message',
-        '새 메시지가 도착했어요',
-        text.trim().length > 30 ? `${text.trim().slice(0, 30)}…` : text.trim(),
+        `${senderName}님이 메시지를 보냈어요`,
+        notifBody,
         { conversationId: convId },
       ).catch((err) => logger.error('[chatController] 메시지 알림 실패:', err));
     }
 
     res.json({ success: true, data: message, error: null });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const removeConversation = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const myId = (req as AuthRequest).uid;
+    const { convId } = req.params;
+    const ok = await deleteConversation(convId, myId);
+    if (!ok) {
+      res.status(403).json({ success: false, data: null, error: '대화방을 삭제할 수 없습니다.' });
+      return;
+    }
+    res.json({ success: true, data: null, error: null });
   } catch (err) {
     next(err);
   }

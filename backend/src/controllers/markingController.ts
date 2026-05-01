@@ -50,7 +50,7 @@ export const postMarking = async (
         result.prevOccupantUserId,
         'tile_stolen',
         '내 타일을 빼앗겼어요!',
-        `누군가 내 영역(${result.tileId})을 점령했어요. 산책을 나가 되찾아보세요!`,
+        `누군가 내 영역을 점령했어요. 산책을 나가 되찾아보세요!`,
         { tileId: result.tileId },
       ).catch((err) => logger.error('[markingController] 알림 생성 실패:', err));
     }

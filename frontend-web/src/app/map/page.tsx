@@ -7,7 +7,7 @@ import { auth } from '@/lib/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import { useGPS } from '@/hooks/useGPS';
 import { useSocket, TileUpdatedPayload } from '@/hooks/useSocket';
-import { getTiles, postMarking, startSession, endSession, getScore, getOccupiedTiles, getLeaderboard, deleteTile, getUserProfile, updateMyProfile, UserProfile, LeaderboardEntry } from '@/services/api';
+import { getTiles, postMarking, startSession, endSession, getScore, getOccupiedTiles, getLeaderboard, deleteTile, getUserProfile, updateMyProfile, withdrawMe, UserProfile, LeaderboardEntry } from '@/services/api';
 import NaverMap, { Tile } from '@/components/NaverMap';
 import MarkingButton from '@/components/MarkingButton';
 import ScorePanel from '@/components/ScorePanel';
@@ -95,6 +95,9 @@ export default function MapPage() {
   const [showCommunity, setShowCommunity] = useState(false);
   const [pendingChatUser, setPendingChatUser] = useState<ChatUser | null>(null);
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
+
+  // 빼앗긴 타일 ⚔️ 표시
+  const [stolenTileIds, setStolenTileIds] = useState<string[]>([]);
 
   // 타일 정보 카드
   const [selectedTile, setSelectedTile] = useState<Tile | null | undefined>(undefined);
@@ -649,6 +652,7 @@ export default function MapPage() {
         flyTo={flyTo}
         visibleRivalUserId={visibleRivalUserId}
         showAllRivals={tileFilter === 'rivals'}
+        stolenTileIds={stolenTileIds}
       />
 
       {/* 온보딩 가이드 */}
@@ -671,6 +675,7 @@ export default function MapPage() {
         score={score}
         tileCount={myTileCount}
         userName={user.displayName ?? user.email ?? '사용자'}
+        photoUrl={petList[activePetIdx]?.photoUrl}
         connected={true}
         expiringCount={expiringCount}
         idToken={idToken ?? undefined}
@@ -678,6 +683,7 @@ export default function MapPage() {
         onProfile={() => setShowProfile(true)}
         onSettings={() => setShowSettings(true)}
         onUnreadChatChange={setChatUnreadCount}
+        onStolenTiles={setStolenTileIds}
       />
 
       {/* 필터 탭 */}
@@ -964,6 +970,18 @@ export default function MapPage() {
           currentLng={effectivePosition?.lng}
           initialOpen
           onClose={() => setShowLeaderboard(false)}
+          onMessage={(p) => {
+            setShowLeaderboard(false);
+            setPendingChatUser({
+              userId: p.userId,
+              displayName: p.displayName,
+              dogName: p.dogName,
+              dogBreed: p.dogBreed,
+              dogAge: p.dogAge,
+              photoUrl: p.photoUrl,
+            });
+            setShowChatList(true);
+          }}
         />
       )}
 
@@ -1186,6 +1204,7 @@ export default function MapPage() {
                       <button
                         onClick={async () => {
                           try {
+                            if (idToken) await withdrawMe(idToken).catch(() => {});
                             localStorage.clear();
                             await user.delete();
                           } catch {

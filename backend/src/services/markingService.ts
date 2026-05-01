@@ -2,6 +2,9 @@ import pool from '../db/pool';
 import logger from '../utils/logger';
 import { MarkingRequestV2, MarkingResultV2 } from '../types';
 import { getTileInfo } from '../utils/tileCalc';
+import { createNotification } from './notificationService';
+
+const DAILY_MARKING_MISSION = { type: 'daily_marking_1', target: 1, bonus: 50 };
 
 /** 30초당 1점 */
 const STAY_WEIGHT = 1 / 30;
@@ -92,6 +95,11 @@ export const markingService = async (req: MarkingRequestV2): Promise<MarkingResu
 
     await client.query('COMMIT');
 
+    // 일일 미션 보너스 지급 — 실패해도 마킹에 영향 없음
+    await checkDailyMission(req.userId).catch((e) =>
+      logger.error('[markingService] 일일 미션 체크 실패:', e),
+    );
+
     const { occupancy_score, occupant_user_id } = updateRes.rows[0];
     logger.debug('[markingService] 최종 점수:', occupancy_score, '| 점유자:', occupant_user_id);
 
@@ -108,3 +116,41 @@ export const markingService = async (req: MarkingRequestV2): Promise<MarkingResu
     client.release();
   }
 };
+
+async function checkDailyMission(userId: string): Promise<void> {
+  const { type, target, bonus } = DAILY_MARKING_MISSION;
+
+  // 오늘 마킹한 고유 타일 수 조회
+  const countRes = await pool.query<{ cnt: string }>(
+    `SELECT COUNT(DISTINCT tile_id)::TEXT AS cnt
+     FROM tile_visits
+     WHERE user_id = $1
+       AND entered_at >= CURRENT_DATE
+       AND entered_at < CURRENT_DATE + INTERVAL '1 day'`,
+    [userId],
+  );
+  const todayCount = parseInt(countRes.rows[0]?.cnt ?? '0');
+  if (todayCount < target) return;
+
+  // 오늘 이미 보상 받았는지 확인 (INSERT … ON CONFLICT DO NOTHING)
+  const insertRes = await pool.query(
+    `INSERT INTO user_daily_missions (user_id, mission_date, mission_type, bonus_points)
+     VALUES ($1, CURRENT_DATE, $2, $3)
+     ON CONFLICT (user_id, mission_date, mission_type) DO NOTHING`,
+    [userId, type, bonus],
+  );
+  if (insertRes.rowCount === 0) return; // 이미 지급됨
+
+  await pool.query(
+    `UPDATE users SET bonus_score = bonus_score + $1 WHERE user_id = $2`,
+    [bonus, userId],
+  );
+
+  await createNotification(
+    userId,
+    'mission_complete',
+    '🎯 미션 완료!',
+    `오늘 첫 마킹 완료! +${bonus}P 보너스가 지급되었어요.`,
+  );
+  logger.info('[markingService] 일일 미션 완료 보너스 지급 — userId:', userId, '+', bonus);
+}

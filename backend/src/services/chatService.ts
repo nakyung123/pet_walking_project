@@ -4,7 +4,8 @@ export interface ChatMessage {
   id: number;
   conversationId: string;
   senderId: string;
-  text: string;
+  text: string | null;
+  imageUrl: string | null;
   createdAt: string;
 }
 
@@ -19,6 +20,7 @@ export interface ConversationSummary {
   lastMessage: string | null;
   lastMessageAt: string | null;
   unreadCount: number;
+  isOtherDeleted: boolean;
 }
 
 function makeConvId(a: string, b: string): string {
@@ -49,26 +51,28 @@ export async function getConversations(myId: string): Promise<ConversationSummar
     last_message: string | null;
     last_message_at: string | null;
     unread_count: string;
+    is_other_deleted: boolean;
   }>(
     `SELECT
        c.id,
-       u.user_id        AS other_user_id,
-       u.display_name   AS other_display_name,
-       u.dog_name       AS other_dog_name,
-       u.dog_breed      AS other_dog_breed,
-       u.dog_age        AS other_dog_age,
-       u.photo_url      AS other_photo_url,
-       m.text           AS last_message,
-       m.created_at     AS last_message_at,
+       COALESCE(u.user_id, CASE WHEN c.user_id_1 = $1 THEN c.user_id_2 ELSE c.user_id_1 END) AS other_user_id,
+       COALESCE(u.display_name, '탈퇴한 유저')  AS other_display_name,
+       COALESCE(u.dog_name, '')                   AS other_dog_name,
+       u.dog_breed                                AS other_dog_breed,
+       u.dog_age                                  AS other_dog_age,
+       u.photo_url                                AS other_photo_url,
+       m.text                                     AS last_message,
+       m.created_at                               AS last_message_at,
        COALESCE((
          SELECT COUNT(*) FROM notifications n
          WHERE n.user_id = $1
            AND n.type = 'new_chat_message'
            AND n.is_read = false
            AND n.metadata->>'conversationId' = c.id
-       ), 0) AS unread_count
+       ), 0) AS unread_count,
+       COALESCE(u.is_deleted, true) AS is_other_deleted
      FROM conversations c
-     JOIN users u ON u.user_id = CASE WHEN c.user_id_1 = $1 THEN c.user_id_2 ELSE c.user_id_1 END
+     LEFT JOIN users u ON u.user_id = CASE WHEN c.user_id_1 = $1 THEN c.user_id_2 ELSE c.user_id_1 END
      LEFT JOIN LATERAL (
        SELECT text, created_at FROM messages
        WHERE conversation_id = c.id
@@ -89,6 +93,7 @@ export async function getConversations(myId: string): Promise<ConversationSummar
     lastMessage: r.last_message,
     lastMessageAt: r.last_message_at,
     unreadCount: parseInt(r.unread_count),
+    isOtherDeleted: r.is_other_deleted,
   }));
 }
 
@@ -97,10 +102,11 @@ export async function getMessages(convId: string, limit = 100): Promise<ChatMess
     id: string;
     conversation_id: string;
     sender_id: string;
-    text: string;
+    text: string | null;
+    image_url: string | null;
     created_at: string;
   }>(
-    `SELECT id, conversation_id, sender_id, text, created_at
+    `SELECT id, conversation_id, sender_id, text, image_url, created_at
      FROM messages
      WHERE conversation_id = $1
      ORDER BY created_at ASC
@@ -112,22 +118,24 @@ export async function getMessages(convId: string, limit = 100): Promise<ChatMess
     conversationId: r.conversation_id,
     senderId: r.sender_id,
     text: r.text,
+    imageUrl: r.image_url,
     createdAt: r.created_at,
   }));
 }
 
-export async function saveMessage(convId: string, senderId: string, text: string): Promise<ChatMessage> {
+export async function saveMessage(convId: string, senderId: string, text: string | null, imageUrl?: string | null): Promise<ChatMessage> {
   const result = await pool.query<{
     id: string;
     conversation_id: string;
     sender_id: string;
-    text: string;
+    text: string | null;
+    image_url: string | null;
     created_at: string;
   }>(
-    `INSERT INTO messages (conversation_id, sender_id, text)
-     VALUES ($1, $2, $3)
-     RETURNING id, conversation_id, sender_id, text, created_at`,
-    [convId, senderId, text],
+    `INSERT INTO messages (conversation_id, sender_id, text, image_url)
+     VALUES ($1, $2, $3, $4)
+     RETURNING id, conversation_id, sender_id, text, image_url, created_at`,
+    [convId, senderId, text ?? null, imageUrl ?? null],
   );
   const r = result.rows[0];
   return {
@@ -135,8 +143,16 @@ export async function saveMessage(convId: string, senderId: string, text: string
     conversationId: r.conversation_id,
     senderId: r.sender_id,
     text: r.text,
+    imageUrl: r.image_url,
     createdAt: r.created_at,
   };
+}
+
+export async function deleteConversation(convId: string, myId: string): Promise<boolean> {
+  const participants = await getConversationParticipants(convId);
+  if (!participants || !participants.includes(myId)) return false;
+  await pool.query(`DELETE FROM conversations WHERE id = $1`, [convId]);
+  return true;
 }
 
 export async function getConversationParticipants(convId: string): Promise<[string, string] | null> {

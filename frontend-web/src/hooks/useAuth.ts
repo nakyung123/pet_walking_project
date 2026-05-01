@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { onAuthStateChanged, signInWithPopup, signOut, User } from 'firebase/auth';
+import { onAuthStateChanged, signInWithRedirect, getRedirectResult, signOut, User } from 'firebase/auth';
 import { auth, googleProvider } from '@/lib/firebase';
 
 export function useAuth() {
@@ -9,6 +9,8 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    getRedirectResult(auth).catch(() => {});
+
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
@@ -16,7 +18,7 @@ export function useAuth() {
     return unsubscribe;
   }, []);
 
-  const signInWithGoogle = () => signInWithPopup(auth, googleProvider);
+  const signInWithGoogle = () => signInWithRedirect(auth, googleProvider);
   const logout = () => signOut(auth);
 
   return { user, loading, signInWithGoogle, logout };
