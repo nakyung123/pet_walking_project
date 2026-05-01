@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { onAuthStateChanged, signInWithRedirect, getRedirectResult, signOut, User } from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, signOut, User, AuthError } from 'firebase/auth';
 import { auth, googleProvider } from '@/lib/firebase';
 
 export function useAuth() {
@@ -9,8 +9,6 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getRedirectResult(auth).catch(() => {});
-
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
@@ -18,7 +16,19 @@ export function useAuth() {
     return unsubscribe;
   }, []);
 
-  const signInWithGoogle = () => signInWithRedirect(auth, googleProvider);
+  const signInWithGoogle = async (): Promise<{ popupBlocked?: boolean }> => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+      return {};
+    } catch (e) {
+      const code = (e as AuthError).code;
+      if (code === 'auth/popup-blocked' || code === 'auth/popup-closed-by-user') {
+        return { popupBlocked: true };
+      }
+      throw e;
+    }
+  };
+
   const logout = () => signOut(auth);
 
   return { user, loading, signInWithGoogle, logout };
