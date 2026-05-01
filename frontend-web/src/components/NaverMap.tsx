@@ -154,6 +154,39 @@ function buildColorMap(tiles: Tile[], myUserId: string): Map<string, number> {
   return colorMap;
 }
 
+/** 타일 목록을 인접 연결 성분(클러스터)별로 분리 */
+function findClusters(tiles: Tile[]): Tile[][] {
+  const tileMap = new Map<string, Tile>();
+  tiles.forEach(t => tileMap.set(t.tileId, t));
+
+  const visited = new Set<string>();
+  const clusters: Tile[][] = [];
+
+  tileMap.forEach((tile, tileId) => {
+    if (visited.has(tileId)) return;
+    const cluster: Tile[] = [];
+    const queue = [tileId];
+    while (queue.length > 0) {
+      const id = queue.pop()!;
+      if (visited.has(id)) continue;
+      visited.add(id);
+      const t = tileMap.get(id);
+      if (!t) continue;
+      cluster.push(t);
+      const u = id.indexOf('_');
+      const gx = parseInt(id.slice(0, u), 10);
+      const gy = parseInt(id.slice(u + 1), 10);
+      for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]] as [number,number][]) {
+        const neighborId = `${gx + dx}_${gy + dy}`;
+        if (tileMap.has(neighborId) && !visited.has(neighborId)) queue.push(neighborId);
+      }
+    }
+    clusters.push(cluster);
+  });
+
+  return clusters;
+}
+
 /**
  * 인접한 타일들을 연결 성분별로 묶어 CCW 외곽 폴리곤 꼭짓점 배열을 반환.
  */
@@ -447,30 +480,33 @@ export default function NaverMap({
       const [rivalFill, rivalStroke] = RIVAL_COLORS[colorIdx];
 
       if (!showRivalTiles) {
-        // 핀 마커만 표시 (tileOwners에 없어도 핀은 렌더링)
+        // 클러스터별 핀 마커 표시
         const name = tileOwners[uid] ?? '';
-        const avgGx = userTiles.reduce((s, t) => {
-          const u = t.tileId.indexOf('_');
-          return s + parseInt(t.tileId.slice(0, u), 10) + 0.5;
-        }, 0) / userTiles.length;
-        const avgGy = userTiles.reduce((s, t) => {
-          const u = t.tileId.indexOf('_');
-          return s + parseInt(t.tileId.slice(u + 1), 10) + 0.5;
-        }, 0) / userTiles.length;
-        const centerPos = toLatLng(avgGx, avgGy);
-        const marker = new window.naver.maps.Marker({
-          map, position: centerPos,
-          icon: {
-            content: getPinContent(rivalStroke),
-            anchor: new window.naver.maps.Point(15, 15),
-          },
-          zIndex: 10,
+        const clusters = findClusters(userTiles).filter(c => c.length >= 3);
+        clusters.forEach((cluster, ci) => {
+          const avgGx = cluster.reduce((s, t) => {
+            const u = t.tileId.indexOf('_');
+            return s + parseInt(t.tileId.slice(0, u), 10) + 0.5;
+          }, 0) / cluster.length;
+          const avgGy = cluster.reduce((s, t) => {
+            const u = t.tileId.indexOf('_');
+            return s + parseInt(t.tileId.slice(u + 1), 10) + 0.5;
+          }, 0) / cluster.length;
+          const centerPos = toLatLng(avgGx, avgGy);
+          const marker = new window.naver.maps.Marker({
+            map, position: centerPos,
+            icon: {
+              content: getPinContent(rivalStroke),
+              anchor: new window.naver.maps.Point(15, 15),
+            },
+            zIndex: 10,
+          });
+          if (ci === 0) markerMetaRef.current.set(uid, { colorIdx, name });
+          if (onUserClick) {
+            window.naver.maps.Event.addListener(marker, 'click', () => onUserClick(uid));
+          }
+          labelsRef.current.set(`${uid}__${ci}`, marker);
         });
-        markerMetaRef.current.set(uid, { colorIdx, name });
-        if (onUserClick) {
-          window.naver.maps.Event.addListener(marker, 'click', () => onUserClick(uid));
-        }
-        labelsRef.current.set(uid, marker);
         return;
       }
 
@@ -529,30 +565,33 @@ export default function NaverMap({
         polygsRef.current.push(polygon);
       });
 
-      // 상대 유저 핀 마커 (tileOwners에 없어도 핀은 렌더링)
+      // 상대 유저 핀 마커 — 클러스터별로 각각 표시
       const name = tileOwners[uid] ?? '';
-      const avgGx = userTiles.reduce((s, t) => {
-        const u = t.tileId.indexOf('_');
-        return s + parseInt(t.tileId.slice(0, u), 10) + 0.5;
-      }, 0) / userTiles.length;
-      const avgGy = userTiles.reduce((s, t) => {
-        const u = t.tileId.indexOf('_');
-        return s + parseInt(t.tileId.slice(u + 1), 10) + 0.5;
-      }, 0) / userTiles.length;
-      const centerPos = toLatLng(avgGx, avgGy);
-      const pinMarker = new window.naver.maps.Marker({
-        map, position: centerPos,
-        icon: {
-          content: getPinContent(rivalStroke),
-          anchor: new window.naver.maps.Point(15, 15),
-        },
-        zIndex: 10,
+      const clusters = findClusters(userTiles).filter(c => c.length >= 3);
+      clusters.forEach((cluster, ci) => {
+        const avgGx = cluster.reduce((s, t) => {
+          const u = t.tileId.indexOf('_');
+          return s + parseInt(t.tileId.slice(0, u), 10) + 0.5;
+        }, 0) / cluster.length;
+        const avgGy = cluster.reduce((s, t) => {
+          const u = t.tileId.indexOf('_');
+          return s + parseInt(t.tileId.slice(u + 1), 10) + 0.5;
+        }, 0) / cluster.length;
+        const centerPos = toLatLng(avgGx, avgGy);
+        const pinMarker = new window.naver.maps.Marker({
+          map, position: centerPos,
+          icon: {
+            content: getPinContent(rivalStroke),
+            anchor: new window.naver.maps.Point(15, 15),
+          },
+          zIndex: 10,
+        });
+        if (ci === 0) markerMetaRef.current.set(uid, { colorIdx, name });
+        if (onUserClick) {
+          window.naver.maps.Event.addListener(pinMarker, 'click', () => onUserClick(uid));
+        }
+        labelsRef.current.set(`${uid}__${ci}`, pinMarker);
       });
-      markerMetaRef.current.set(uid, { colorIdx, name });
-      if (onUserClick) {
-        window.naver.maps.Event.addListener(pinMarker, 'click', () => onUserClick(uid));
-      }
-      labelsRef.current.set(uid, pinMarker);
     });
   }, [tiles, userId, mapReady, tileOwners, visibleRivalUserId, showAllRivals]);
 

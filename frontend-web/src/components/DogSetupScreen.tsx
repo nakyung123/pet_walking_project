@@ -1,8 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from '@/lib/firebase';
+import { useState, useRef } from 'react';
 
 interface PetData {
   name: string;
@@ -64,25 +62,6 @@ function BreedSelect({ value, onChange }: { value: string; onChange: (v: string)
   const listRef = useRef<HTMLUListElement>(null);
 
   const filtered = query.trim() ? DOG_BREEDS.filter((b) => matchBreed(b, query.trim())) : [];
-
-  useEffect(() => { setActiveIdx(-1); }, [query]);
-
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setQuery('');
-      }
-    };
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, []);
-
-  useEffect(() => {
-    if (activeIdx < 0 || !listRef.current) return;
-    const items = listRef.current.querySelectorAll('li[data-idx]');
-    (items[activeIdx] as HTMLElement)?.scrollIntoView({ block: 'nearest' });
-  }, [activeIdx]);
 
   const select = (breed: string) => {
     onChange(breed);
@@ -169,43 +148,43 @@ function BreedSelect({ value, onChange }: { value: string; onChange: (v: string)
   );
 }
 
+// .과 숫자만, 소수점 하나, 최대 5자리 (예: 100.5)
+function sanitizeWeight(val: string): string {
+  const clean = val.replace(/[^0-9.]/g, '');
+  const parts = clean.split('.');
+  const normalized = parts.length > 2 ? parts[0] + '.' + parts.slice(1).join('') : clean;
+  return normalized.length <= 5 ? normalized : normalized.slice(0, 5);
+}
+
 export default function DogSetupScreen({ onDone }: Props) {
   const [name, setName] = useState('');
   const [breed, setBreed] = useState('');
-  const [age, setAge] = useState('0');
+  const [age, setAge] = useState('');
   const [gender, setGender] = useState<'male' | 'female'>('male');
   const [neutered, setNeutered] = useState(false);
-  const [rawWeight, setRawWeight] = useState(''); // 소수점 없는 정수 문자열 (1005 → 100.5)
+  const [weightStr, setWeightStr] = useState('');
   const [personality, setPersonality] = useState('');
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 1005 → "100.5"
-  const displayWeight = rawWeight ? (parseInt(rawWeight) / 10).toFixed(1) : '0.0';
+  const PERSONALITY_MAX = 100;
+  const weightValid = weightStr.trim() !== '' && !weightStr.endsWith('.') && parseFloat(weightStr) > 0;
+  const canStart = name.trim() && breed && age.trim() && personality.trim() && weightValid;
 
-  const canStart = name.trim() && breed && age && personality.trim();
-
-  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // FileReader로 즉시 미리보기 (Firebase Storage 업로드 불필요)
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
-    try {
-      const storageRef = ref(storage, `profiles/${Date.now()}_${file.name}`);
-      await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(storageRef);
-      setPhotoUrl(url);
-    } catch {
-      // 업로드 실패 시 무시
-    } finally {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setPhotoUrl(ev.target?.result as string);
       setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  const handleWeightInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const digits = e.target.value.replace(/[^0-9]/g, '').slice(0, 4); // 최대 4자리 → 999.9
-    setRawWeight(digits);
+    };
+    reader.onerror = () => setUploading(false);
+    reader.readAsDataURL(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleStart = () => {
@@ -217,167 +196,179 @@ export default function DogSetupScreen({ onDone }: Props) {
       gender,
       neutered,
       personality: personality.trim(),
-      weight: rawWeight ? parseInt(rawWeight) / 10 : 0,
+      weight: parseFloat(weightStr),
       photoUrl: photoUrl ?? undefined,
     });
   };
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center px-6 overflow-y-auto scrollbar-hide py-8"
+      className="fixed inset-0 z-50 flex flex-col overflow-hidden px-6 pt-6 pb-6"
       style={{ background: 'linear-gradient(160deg, #FFF7ED 0%, #FFEDD5 60%, #FED7AA 100%)' }}
     >
-      <div className="absolute top-0 left-0 w-72 h-72 rounded-full opacity-30 -translate-x-1/3 -translate-y-1/3"
+      {/* 배경 장식 */}
+      <div className="absolute top-0 left-0 w-72 h-72 rounded-full opacity-30 -translate-x-1/3 -translate-y-1/3 pointer-events-none"
         style={{ background: 'radial-gradient(circle, #FB923C, transparent)' }} />
-      <div className="absolute bottom-0 right-0 w-64 h-64 rounded-full opacity-20 translate-x-1/4 translate-y-1/4"
+      <div className="absolute bottom-0 right-0 w-64 h-64 rounded-full opacity-20 translate-x-1/4 translate-y-1/4 pointer-events-none"
         style={{ background: 'radial-gradient(circle, #F97316, transparent)' }} />
 
-      <div className="relative z-10 flex flex-col items-center gap-5 w-full max-w-xs">
+      <div className="relative z-10 flex flex-col items-center w-full max-w-xs mx-auto flex-1 min-h-0">
 
-        {/* 프로필 사진 */}
-        <div className="relative">
-          <div
-            className="w-24 h-24 rounded-full overflow-hidden shadow-lg border-4 border-white/80 cursor-pointer"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {uploading ? (
-              <div className="w-full h-full flex items-center justify-center bg-orange-50">
-                <div className="w-5 h-5 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
-              </div>
-            ) : photoUrl ? (
-              <img src={photoUrl} alt="프로필" className="w-full h-full object-cover" />
-            ) : (
-              <img src="/bichon.png" alt="강아지" className="w-full h-full object-cover" />
-            )}
-          </div>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-orange-500 text-white flex items-center justify-center shadow-md text-xs"
-          >
-            +
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handlePhotoSelect}
-          />
-        </div>
-
-        <div className="text-center">
-          <h2 className="text-2xl font-extrabold text-gray-800">반려견을 소개해주세요!</h2>
-          <p className="mt-1.5 text-sm text-gray-500 leading-relaxed">
-            퍼피랜드를 함께할 반려견 정보를<br />먼저 입력해주세요.
-          </p>
-        </div>
-
-        <div className="w-full bg-white/75 rounded-2xl px-5 py-5 space-y-4">
-          <div>
-            <label className="text-xs font-bold text-gray-600 mb-1.5 block">
-              이름 <span className="text-orange-500">*</span>
-            </label>
+        {/* 프로필 사진 + 타이틀 (고정) */}
+        <div className="shrink-0 flex flex-col items-center gap-4 mb-4">
+          <div className="relative">
+            <div
+              className="w-24 h-24 rounded-full overflow-hidden shadow-lg border-4 border-white/80 cursor-pointer"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {uploading ? (
+                <div className="w-full h-full flex items-center justify-center bg-orange-50">
+                  <div className="w-5 h-5 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : photoUrl ? (
+                <img src={photoUrl} alt="프로필" className="w-full h-full object-cover" />
+              ) : (
+                <img src="/bichon.png" alt="강아지" className="w-full h-full object-cover" />
+              )}
+            </div>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-orange-500 text-white flex items-center justify-center shadow-md text-xs"
+            >
+              +
+            </button>
             <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="반려견 이름"
-              className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:border-orange-400"
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handlePhotoSelect}
             />
           </div>
 
-          <div>
-            <label className="text-xs font-bold text-gray-600 mb-1.5 block">
-              견종 <span className="text-orange-500">*</span>
-            </label>
-            <BreedSelect value={breed} onChange={setBreed} />
+          <div className="text-center">
+            <h2 className="text-2xl font-extrabold text-gray-800">반려견을 소개해주세요!</h2>
+            <p className="mt-1 text-sm text-gray-500 leading-relaxed">
+              퍼피랜드를 함께할 반려견 정보를<br />먼저 입력해주세요.
+            </p>
           </div>
+        </div>
 
-          <div>
-            <label className="text-xs font-bold text-gray-600 mb-1.5 block">
-              나이 <span className="text-orange-500">*</span>
-            </label>
-            <div className="flex items-center gap-2">
+        {/* 폼 카드 (스크롤 없이 가득 채움) */}
+        <div className="w-full flex-1 min-h-0 overflow-y-auto scrollbar-hide">
+          <div className="bg-white/75 rounded-2xl px-5 py-5 space-y-4">
+            <div>
+              <label className="text-xs font-bold text-gray-600 mb-1.5 block">
+                이름 <span className="text-orange-500">*</span>
+              </label>
               <input
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                value={age}
-                onChange={(e) => setAge(e.target.value.replace(/[^0-9]/g, '').slice(0, 2) || '0')}
-                className="w-20 px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:border-orange-400 text-center"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="반려견 이름"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:border-orange-400"
               />
-              <span className="text-sm text-gray-500">살</span>
             </div>
-          </div>
 
-          <div>
-            <label className="text-xs font-bold text-gray-600 mb-1.5 block">성별</label>
-            <div className="flex gap-2">
-              {(['male', 'female'] as const).map((g) => (
-                <button
-                  key={g}
-                  onClick={() => setGender(g)}
-                  className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-colors ${
-                    gender === g ? 'text-white shadow-sm' : 'bg-gray-100 text-gray-500'
-                  }`}
-                  style={gender === g ? { background: 'linear-gradient(135deg, #FB923C, #F97316)' } : {}}
-                >
-                  {g === 'male' ? '남아' : '여아'}
-                </button>
-              ))}
+            <div>
+              <label className="text-xs font-bold text-gray-600 mb-1.5 block">
+                견종 <span className="text-orange-500">*</span>
+              </label>
+              <BreedSelect value={breed} onChange={setBreed} />
             </div>
-          </div>
 
-          <div>
-            <label className="text-xs font-bold text-gray-600 mb-1.5 block">중성화</label>
-            <div className="flex gap-2">
-              {([true, false] as const).map((v) => (
-                <button
-                  key={String(v)}
-                  onClick={() => setNeutered(v)}
-                  className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-colors ${
-                    neutered === v ? 'text-white shadow-sm' : 'bg-gray-100 text-gray-500'
-                  }`}
-                  style={neutered === v ? { background: 'linear-gradient(135deg, #FB923C, #F97316)' } : {}}
-                >
-                  {v ? '했어요' : '안 했어요'}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs font-bold text-gray-600 mb-1.5 block">체중 (선택)</label>
-            <div className="flex items-center gap-2">
-              <div className="w-24 px-3.5 py-2.5 rounded-xl border border-gray-200 bg-white focus-within:border-orange-400 flex items-center gap-0.5">
+            <div>
+              <label className="text-xs font-bold text-gray-600 mb-1.5 block">
+                나이 <span className="text-orange-500">*</span>
+              </label>
+              <div className="flex items-center gap-2">
                 <input
                   type="text"
                   inputMode="numeric"
-                  value={rawWeight}
-                  onChange={handleWeightInput}
+                  pattern="[0-9]*"
+                  value={age}
                   placeholder=""
-                  className="w-full text-sm text-gray-800 focus:outline-none bg-transparent text-right"
-                  style={{ caretColor: 'auto' }}
+                  onChange={(e) => setAge(e.target.value.replace(/[^0-9]/g, '').slice(0, 2))}
+                  className="w-20 px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:border-orange-400 text-center"
                 />
+                <span className="text-sm text-gray-500">살</span>
               </div>
-              <span className="text-sm text-gray-500 shrink-0">= {displayWeight} kg</span>
             </div>
-            <p className="text-[11px] text-gray-400 mt-1">숫자만 입력 (예: 1005 → 100.5kg, 최대 999.9)</p>
-          </div>
 
-          <div>
-            <label className="text-xs font-bold text-gray-600 mb-1.5 block">
-              성격 <span className="text-orange-500">*</span>
-            </label>
-            <input
-              value={personality}
-              onChange={(e) => setPersonality(e.target.value)}
-              placeholder="예: 활발하고 사교적이에요"
-              className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:border-orange-400"
-            />
+            <div>
+              <label className="text-xs font-bold text-gray-600 mb-1.5 block">성별</label>
+              <div className="flex gap-2">
+                {(['male', 'female'] as const).map((g) => (
+                  <button
+                    key={g}
+                    onClick={() => setGender(g)}
+                    className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-colors ${
+                      gender === g ? 'text-white shadow-sm' : 'bg-gray-100 text-gray-500'
+                    }`}
+                    style={gender === g ? { background: 'linear-gradient(135deg, #FB923C, #F97316)' } : {}}
+                  >
+                    {g === 'male' ? '남아' : '여아'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-gray-600 mb-1.5 block">중성화</label>
+              <div className="flex gap-2">
+                {([true, false] as const).map((v) => (
+                  <button
+                    key={String(v)}
+                    onClick={() => setNeutered(v)}
+                    className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-colors ${
+                      neutered === v ? 'text-white shadow-sm' : 'bg-gray-100 text-gray-500'
+                    }`}
+                    style={neutered === v ? { background: 'linear-gradient(135deg, #FB923C, #F97316)' } : {}}
+                  >
+                    {v ? '했어요' : '안 했어요'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-gray-600 mb-1.5 block">
+                체중 <span className="text-orange-500">*</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={weightStr}
+                  placeholder="예: 3.5"
+                  onChange={(e) => setWeightStr(sanitizeWeight(e.target.value))}
+                  className="w-24 px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:border-orange-400 text-center"
+                />
+                <span className="text-sm text-gray-500 shrink-0">kg</span>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1">숫자와 . 만 입력, 최대 5자리 (예: 100.5)</p>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-gray-600 mb-1.5 flex items-center justify-between">
+                <span>성격 <span className="text-orange-500">*</span></span>
+                <span className={`font-normal ${personality.length >= PERSONALITY_MAX ? 'text-red-400' : 'text-gray-400'}`}>
+                  {personality.length}/{PERSONALITY_MAX}
+                </span>
+              </label>
+              <textarea
+                value={personality}
+                onChange={(e) => setPersonality(e.target.value)}
+                maxLength={PERSONALITY_MAX}
+                rows={3}
+                placeholder="예: 활발하고 사교적이에요"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none focus:border-orange-400 resize-none leading-relaxed"
+              />
+            </div>
           </div>
         </div>
 
-        <div className="w-full">
+        {/* 시작 버튼 (고정) */}
+        <div className="w-full shrink-0 mt-4">
           <button
             onClick={handleStart}
             disabled={!canStart}

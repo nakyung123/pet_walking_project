@@ -1,5 +1,6 @@
 import pool from '../db/pool';
 import logger from '../utils/logger';
+import admin from '../firebase';
 import { User, LeaderboardEntry, LeaderboardData } from '../types';
 
 /**
@@ -45,6 +46,7 @@ const LEADERBOARD_QUERY = `
     (COALESCE(SUM(t.occupancy_score), 0) + u.bonus_score)::INTEGER    AS total_score
   FROM users u
   LEFT JOIN tiles t ON t.occupant_user_id = u.user_id
+  WHERE u.is_deleted = FALSE
   GROUP BY u.user_id, u.display_name, u.bonus_score
 `;
 
@@ -114,6 +116,22 @@ export const getLeaderboard = async (): Promise<LeaderboardData> => {
   return data;
 };
 
-export const softDeleteUser = async (userId: string): Promise<void> => {
-  await pool.query(`UPDATE users SET is_deleted = TRUE WHERE user_id = $1`, [userId]);
+export const hardDeleteUser = async (userId: string): Promise<void> => {
+  // 1. 점유 타일 초기화 (ON DELETE SET NULL만으로는 score가 남으므로 명시적으로 처리)
+  await pool.query(
+    `UPDATE tiles SET occupant_user_id = NULL, occupancy_score = 0, last_marked_at = NULL
+     WHERE occupant_user_id = $1`,
+    [userId],
+  );
+
+  // 2. DB에서 유저 하드 삭제 (CASCADE로 posts, comments, tile_visits, 채팅 등 연쇄 삭제)
+  await pool.query(`DELETE FROM users WHERE user_id = $1`, [userId]);
+
+  // 3. Firebase Auth 계정 삭제
+  try {
+    await admin.auth().deleteUser(userId);
+  } catch (err) {
+    // Firebase 계정이 이미 없는 경우(auth/user-not-found) 무시
+    logger.warn('[hardDeleteUser] Firebase Auth 삭제 실패 (무시): %s', (err as Error).message);
+  }
 };

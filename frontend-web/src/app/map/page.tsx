@@ -977,6 +977,18 @@ export default function MapPage() {
           idToken={idToken}
           currentUserId={user.uid}
           onClose={() => setShowCommunity(false)}
+          onMessage={(p) => {
+            setShowCommunity(false);
+            setPendingChatUser({
+              userId: p.userId,
+              displayName: p.displayName,
+              dogName: p.dogName,
+              dogBreed: p.dogBreed,
+              dogAge: p.dogAge,
+              photoUrl: p.photoUrl,
+            });
+            setShowChatList(true);
+          }}
         />
       )}
 

@@ -60,8 +60,10 @@ function formatTime(iso: string): string {
 export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, onClose }: ChatRoomProps) {
   const [convId, setConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [sendImageError, setSendImageError] = useState<string | null>(null);
   const [showReport, setShowReport] = useState(false);
   const [fullTextMsg, setFullTextMsg] = useState<string | null>(null);
   // 이미지 미리보기
@@ -77,6 +79,8 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
   // 대화방 생성 또는 조회 후 메시지 로드
   useEffect(() => {
     let cancelled = false;
+    setMessagesLoaded(false);
+    setMessages([]);
     (async () => {
       try {
         const convRes = await startConversation(otherUser.userId, idToken);
@@ -90,6 +94,8 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
         }
       } catch (e) {
         console.error('[ChatRoom] 초기화 실패', e);
+      } finally {
+        if (!cancelled) setMessagesLoaded(true);
       }
     })();
     return () => { cancelled = true; };
@@ -126,16 +132,31 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
     if (!text || !convId || sending) return;
     setSending(true);
     setInput('');
+
+    const optimisticMsg: ChatMessage = {
+      id: -Date.now(),
+      conversationId: convId,
+      senderId: currentUserId,
+      text,
+      imageUrl: null,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, optimisticMsg]);
+
     try {
-      await sendChatMessage(convId, text, idToken);
+      const res = await sendChatMessage(convId, text, idToken);
+      if (res.success && res.data) {
+        setMessages((prev) => prev.map((m) => m.id === optimisticMsg.id ? res.data! : m));
+      }
     } catch (e) {
       console.error('[ChatRoom] 전송 실패', e);
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
       setInput(text);
     } finally {
       setSending(false);
       inputRef.current?.focus();
     }
-  }, [input, convId, sending, idToken]);
+  }, [input, convId, sending, idToken, currentUserId]);
 
   // 이미지 선택 시 미리보기만 저장 (아직 업로드 안 함)
   const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -153,6 +174,7 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
     setPendingImage(null);
     URL.revokeObjectURL(previewUrl);
     setSending(true);
+    setSendImageError(null);
     try {
       const storageRef = ref(storage, `chat/${convId}/${Date.now()}_${file.name}`);
       await uploadBytes(storageRef, file);
@@ -160,6 +182,7 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
       await sendChatMessage(convId, null, idToken, imageUrl);
     } catch (e) {
       console.error('[ChatRoom] 이미지 전송 실패', e);
+      setSendImageError('사진 전송에 실패했어요. 다시 시도해주세요.');
     } finally {
       setSending(false);
     }
@@ -229,7 +252,7 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
               <p className="text-white/80 text-[11px] truncate">
                 {otherUser.displayName}
                 {otherUser.dogBreed ? ` · ${otherUser.dogBreed}` : ''}
-                {otherUser.dogAge ? ` · ${otherUser.dogAge}` : ''}
+                {otherUser.dogAge ? ` · ${otherUser.dogAge}살` : ''}
               </p>
             </div>
           </button>
@@ -244,10 +267,18 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
 
         {/* 메시지 목록 */}
         <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3 bg-gray-50">
-          {messages.length === 0 && (
+          {!messagesLoaded && (
+            <div className="flex justify-center mt-10">
+              <div className="w-6 h-6 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}
+          {messagesLoaded && messages.length === 0 && (
             <p className="text-center text-xs text-gray-400 mt-10">
               {otherUser.dogName}에게 첫 메시지를 보내보세요
             </p>
+          )}
+          {sendImageError && (
+            <p className="text-center text-xs text-red-400">{sendImageError}</p>
           )}
           {messages.map((msg) => {
             const isMine = msg.senderId === currentUserId;
@@ -349,9 +380,9 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
 
       {/* 이미지 미리보기 모달 */}
       {pendingImage && createPortal(
-        <div className="fixed inset-0 z-[80] flex items-end justify-center">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center px-5">
           <div className="absolute inset-0 bg-black/70" onClick={handleImageCancel} />
-          <div className="relative w-full max-w-sm bg-white rounded-t-3xl shadow-2xl overflow-hidden">
+          <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden">
             {/* 미리보기 헤더 */}
             <div className="flex items-center justify-between px-5 pt-4 pb-3">
               <p className="text-sm font-bold text-gray-900">사진 전송</p>

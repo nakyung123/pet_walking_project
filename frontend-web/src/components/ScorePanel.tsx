@@ -118,6 +118,9 @@ export default function ScorePanel({
   const [unreadCount, setUnreadCount] = useState(0);
   const notifRef = useRef<HTMLDivElement>(null);
   const [showScoreHistory, setShowScoreHistory] = useState(false);
+  // 만료 경고 배지 dismiss 상태 (알림 탭 열면 사라지고, expiringCount가 새로 증가하면 복원)
+  const [expiringDismissed, setExpiringDismissed] = useState(false);
+  const prevExpiringCount = useRef(expiringCount);
 
   const fetchNotifications = useCallback(async () => {
     if (!idToken) return;
@@ -147,14 +150,26 @@ export default function ScorePanel({
     return () => clearInterval(id);
   }, [fetchNotifications]);
 
-  // 패널 열릴 때 전체 읽음 처리
+  // expiringCount가 새로 증가하면 dismiss 초기화
   useEffect(() => {
-    if (!showNotif || !idToken) return;
-    if (unreadCount === 0) return;
+    if (expiringCount > prevExpiringCount.current) {
+      setExpiringDismissed(false);
+    }
+    prevExpiringCount.current = expiringCount;
+  }, [expiringCount]);
+
+  // 패널 열릴 때 전체 읽음 처리 (채팅 알림 isRead는 건드리지 않음)
+  useEffect(() => {
+    if (!showNotif) return;
+    setExpiringDismissed(true);
+    if (!idToken || unreadCount === 0) return;
     markAllNotificationsRead(idToken)
       .then(() => {
         setUnreadCount(0);
-        setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+        // new_chat_message는 isRead 상태를 바꾸지 않아 채팅 뱃지 독립 유지
+        setNotifications((prev) =>
+          prev.map((n) => n.type === 'new_chat_message' ? n : { ...n, isRead: true }),
+        );
       })
       .catch((e) => console.error('[ScorePanel] 읽음 처리 실패:', e));
   }, [showNotif, idToken, unreadCount]);
@@ -182,7 +197,7 @@ export default function ScorePanel({
     deleteNotification(id, idToken).catch(() => {});
   };
 
-  const totalBadge = showNotif ? 0 : unreadCount + (expiringCount > 0 ? 1 : 0);
+  const totalBadge = showNotif ? 0 : unreadCount + (expiringCount > 0 && !expiringDismissed ? 1 : 0);
 
   return (
     <>

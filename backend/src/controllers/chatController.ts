@@ -60,7 +60,7 @@ export const listMessages = async (req: Request, res: Response, next: NextFuncti
       return;
     }
 
-    const messages = await getMessages(convId);
+    const messages = await getMessages(convId, myId);
     res.json({ success: true, data: messages, error: null });
   } catch (err) {
     next(err);

@@ -113,21 +113,22 @@ export async function deletePost(postId: string, userId: string): Promise<boolea
 
 // ─── 좋아요 토글 ─────────────────────────────────────────────────────────────
 export async function toggleLike(postId: string, userId: string): Promise<{ liked: boolean; likeCount: number }> {
-  const { rows: existing } = await pool.query(
-    `SELECT 1 FROM post_likes WHERE post_id = $1 AND user_id = $2`,
+  const { rowCount: deleted } = await pool.query(
+    `DELETE FROM post_likes WHERE post_id = $1 AND user_id = $2`,
     [postId, userId],
   );
-
-  if (existing.length > 0) {
-    await pool.query(`DELETE FROM post_likes WHERE post_id = $1 AND user_id = $2`, [postId, userId]);
-    await pool.query(`UPDATE posts SET like_count = GREATEST(0, like_count - 1) WHERE id = $1`, [postId]);
-  } else {
-    await pool.query(`INSERT INTO post_likes (post_id, user_id) VALUES ($1, $2)`, [postId, userId]);
-    await pool.query(`UPDATE posts SET like_count = like_count + 1 WHERE id = $1`, [postId]);
+  const liked = (deleted ?? 0) === 0;
+  if (liked) {
+    await pool.query(
+      `INSERT INTO post_likes (post_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [postId, userId],
+    );
   }
-
-  const { rows } = await pool.query(`SELECT like_count FROM posts WHERE id = $1`, [postId]);
-  return { liked: existing.length === 0, likeCount: rows[0]?.like_count ?? 0 };
+  const { rows } = await pool.query(
+    `UPDATE posts SET like_count = GREATEST(0, like_count + $2) WHERE id = $1 RETURNING like_count`,
+    [postId, liked ? 1 : -1],
+  );
+  return { liked, likeCount: rows[0]?.like_count ?? 0 };
 }
 
 // ─── 댓글 목록 조회 (트리 구조 변환) ───────────────────────────────────────────

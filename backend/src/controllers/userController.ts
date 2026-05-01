@@ -1,8 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
-import { upsertUser, softDeleteUser } from '../services/userService';
+import { upsertUser, hardDeleteUser } from '../services/userService';
 import { ApiResponse, User, UserProfile } from '../types';
 import logger from '../utils/logger';
 import pool from '../db/pool';
+
+const profileCache = new Map<string, { data: UserProfile; ts: number }>();
+const PROFILE_TTL = 60_000;
 
 interface RegisterUserBody {
   displayName: string;
@@ -45,6 +48,13 @@ export const getProfile = async (
 ): Promise<void> => {
   try {
     const { userId } = req.params;
+
+    const cached = profileCache.get(userId);
+    if (cached && Date.now() - cached.ts < PROFILE_TTL) {
+      res.json({ success: true, data: cached.data, error: null });
+      return;
+    }
+
     const result = await pool.query<{
       user_id: string; display_name: string; dog_name: string;
       dog_breed: string | null; dog_age: string | null;
@@ -57,7 +67,7 @@ export const getProfile = async (
               COUNT(t.tile_id) AS tile_count
        FROM users u
        LEFT JOIN tiles t ON t.occupant_user_id = u.user_id
-       WHERE u.user_id = $1
+       WHERE u.user_id = $1 AND u.is_deleted = FALSE
        GROUP BY u.user_id, u.bonus_score`,
       [userId],
     );
@@ -66,21 +76,20 @@ export const getProfile = async (
       return;
     }
     const r = result.rows[0];
-    const body: ApiResponse<UserProfile> = {
-      success: true,
-      data: {
-        userId: r.user_id,
-        displayName: r.display_name,
-        dogName: r.dog_name,
-        dogBreed: r.dog_breed,
-        dogAge: r.dog_age,
-        dogPersonality: r.dog_personality,
-        photoUrl: r.photo_url,
-        totalScore: parseInt(r.total_score),
-        tileCount: parseInt(r.tile_count),
-      },
-      error: null,
+    const profile: UserProfile = {
+      userId: r.user_id,
+      displayName: r.display_name,
+      dogName: r.dog_name,
+      dogBreed: r.dog_breed,
+      dogAge: r.dog_age,
+      dogPersonality: r.dog_personality,
+      photoUrl: r.photo_url,
+      totalScore: parseInt(r.total_score),
+      tileCount: parseInt(r.tile_count),
     };
+    profileCache.set(userId, { data: profile, ts: Date.now() });
+
+    const body: ApiResponse<UserProfile> = { success: true, data: profile, error: null };
     res.json(body);
   } catch (err) {
     next(err);
@@ -103,6 +112,7 @@ export const updateMyProfile = async (
        WHERE user_id=$6`,
       [dogName ?? null, dogBreed ?? null, dogAge ?? null, dogPersonality ?? null, photoUrl ?? null, uid],
     );
+    profileCache.delete(uid);
     res.json({ success: true, data: null, error: null });
   } catch (err) {
     next(err);
@@ -147,7 +157,7 @@ export const withdrawUser = async (
 ): Promise<void> => {
   try {
     const uid = (req as Request & { uid: string }).uid;
-    await softDeleteUser(uid);
+    await hardDeleteUser(uid);
     res.json({ success: true, data: null, error: null });
   } catch (err) {
     next(err);

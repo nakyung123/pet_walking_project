@@ -397,9 +397,13 @@ export default function PetProfile({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<PetData>(DEFAULT_PET);
   const [addDraft, setAddDraft] = useState<PetData>(DEFAULT_PET);
+  const [editWeightStr, setEditWeightStr] = useState('');
+  const [addWeightStr, setAddWeightStr] = useState('');
   const [showPoints, setShowPoints] = useState(false);
   const [totalPoints, setTotalPoints] = useState(0);
   const [pendingDelete, setPendingDelete] = useState(false);
+
+  const PERSONALITY_MAX = 100;
 
   useEffect(() => {
     setTotalPoints(loadPointHistory().reduce((s, h) => s + h.points, 0));
@@ -458,7 +462,10 @@ export default function PetProfile({
   };
 
   const handleSave = () => {
+    const wNum = parseFloat(editWeightStr);
     if (!draft.name.trim() || !draft.age || !draft.breed || !draft.personality.trim()) return;
+    if (!editWeightStr.trim() || isNaN(wNum) || wNum <= 0) return;
+    draft.weight = wNum;
     const newPets = pets.map((p, i) => (i === activePetIdx ? draft : p));
     setPets(newPets);
     savePets(newPets, activePetIdx);
@@ -476,11 +483,17 @@ export default function PetProfile({
 
   // addingPet 진입 시 빈 폼 초기화
   useEffect(() => {
-    if (addingPet) setAddDraft({ ...DEFAULT_PET, name: '', breed: '', age: '', personality: '' });
+    if (addingPet) {
+      setAddDraft({ ...DEFAULT_PET, name: '', breed: '', age: '', personality: '' });
+      setAddWeightStr('');
+    }
   }, [addingPet]);
 
   const handleAddSave = () => {
+    const wNum = parseFloat(addWeightStr);
     if (!addDraft.name.trim() || !addDraft.age || !addDraft.breed || !addDraft.personality.trim()) return;
+    if (!addWeightStr.trim() || isNaN(wNum) || wNum <= 0) return;
+    addDraft.weight = wNum;
     const newPets = [...pets, addDraft];
     const newIdx = newPets.length - 1;
     setPets(newPets);
@@ -525,23 +538,34 @@ export default function PetProfile({
         </label>
 
         <div className="space-y-2">
-          {(
-            [
-              { label: '이름', key: 'name', placeholder: '이름을 입력해주세요' },
-              { label: '성격', key: 'personality', placeholder: '성격을 입력해주세요' },
-            ] as { label: string; key: keyof PetData; placeholder: string }[]
-          ).map(({ label, key, placeholder }) => (
-            <div key={key} className="flex items-center gap-2">
-              <span className="text-xs text-gray-700 font-medium w-10 shrink-0">{label}</span>
-              <input
-                value={addDraft[key] as string}
-                placeholder={placeholder}
-                maxLength={key === 'name' ? 8 : undefined}
-                onChange={(e) => setAddDraft((prev) => ({ ...prev, [key]: e.target.value }))}
-                className="flex-1 text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400"
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">이름</span>
+            <input
+              value={addDraft.name}
+              placeholder="이름을 입력해주세요"
+              maxLength={8}
+              onChange={(e) => setAddDraft((prev) => ({ ...prev, name: e.target.value }))}
+              className="flex-1 text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400"
+            />
+          </div>
+
+          <div className="flex items-start gap-2">
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0 pt-1.5">성격</span>
+            <div className="flex-1">
+              <textarea
+                value={addDraft.personality}
+                placeholder="성격을 입력해주세요"
+                maxLength={PERSONALITY_MAX}
+                rows={3}
+                onChange={(e) => setAddDraft((prev) => ({ ...prev, personality: e.target.value }))}
+                className="w-full text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400 resize-none leading-relaxed"
               />
+              <p className={`text-[10px] text-right -mt-0.5 ${addDraft.personality.length >= PERSONALITY_MAX ? 'text-red-400' : 'text-gray-400'}`}>
+                {addDraft.personality.length}/{PERSONALITY_MAX}
+              </p>
             </div>
-          ))}
+          </div>
+
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-700 font-medium w-10 shrink-0">나이</span>
             <div className="flex items-center gap-1">
@@ -550,7 +574,7 @@ export default function PetProfile({
                 inputMode="numeric"
                 pattern="[0-9]*"
                 value={addDraft.age}
-                placeholder="0"
+                placeholder=""
                 onChange={(e) => setAddDraft((prev) => ({ ...prev, age: e.target.value.replace(/[^0-9]/g, '').slice(0, 2) }))}
                 className="w-16 text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400"
               />
@@ -566,19 +590,21 @@ export default function PetProfile({
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">체중</span>
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">
+              체중 <span className="text-orange-500">*</span>
+            </span>
             <input
               type="text"
               inputMode="decimal"
-              value={addDraft.weight || ''}
-              placeholder="0.0"
+              value={addWeightStr}
+              placeholder="예: 3.5"
               onChange={(e) => {
-                const raw = e.target.value.replace(/[^0-9.]/g, '');
-                const clean = raw.split('.').length > 2 ? raw.slice(0, raw.lastIndexOf('.')) : raw;
-                const val = parseFloat(clean);
-                setAddDraft((prev) => ({ ...prev, weight: clean === '' ? 0 : (isNaN(val) ? prev.weight : Math.min(val, 99)) }));
+                const clean = e.target.value.replace(/[^0-9.]/g, '');
+                const parts = clean.split('.');
+                const norm = parts.length > 2 ? parts[0] + '.' + parts.slice(1).join('') : clean;
+                if (norm.length <= 5) setAddWeightStr(norm);
               }}
-              className="w-16 text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400"
+              className="w-20 text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400"
             />
             <span className="text-xs text-gray-500">kg</span>
           </div>
@@ -625,7 +651,7 @@ export default function PetProfile({
           </button>
           <button
             onClick={handleAddSave}
-            disabled={!addDraft.name.trim() || !addDraft.age || !addDraft.breed || !addDraft.personality.trim()}
+            disabled={!addDraft.name.trim() || !addDraft.age || !addDraft.breed || !addDraft.personality.trim() || !addWeightStr.trim() || parseFloat(addWeightStr) <= 0}
             className="flex-1 h-11 rounded-2xl text-white text-sm font-bold active:scale-[0.98] transition-transform disabled:opacity-40"
             style={{ background: 'linear-gradient(135deg, #FB923C, #F97316)' }}
           >
@@ -655,23 +681,34 @@ export default function PetProfile({
         </div>
 
         <div className="space-y-2">
-          {(
-            [
-              { label: '이름', key: 'name', placeholder: '이름을 입력해주세요' },
-              { label: '성격', key: 'personality', placeholder: '성격을 입력해주세요' },
-            ] as { label: string; key: keyof PetData; placeholder: string }[]
-          ).map(({ label, key, placeholder }) => (
-            <div key={key} className="flex items-center gap-2">
-              <span className="text-xs text-gray-700 font-medium w-10 shrink-0">{label}</span>
-              <input
-                value={draft[key] as string}
-                placeholder={placeholder}
-                maxLength={key === 'name' ? 8 : undefined}
-                onChange={(e) => setDraft((prev) => ({ ...prev, [key]: e.target.value }))}
-                className="flex-1 text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400"
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">이름</span>
+            <input
+              value={draft.name}
+              placeholder="이름을 입력해주세요"
+              maxLength={8}
+              onChange={(e) => setDraft((prev) => ({ ...prev, name: e.target.value }))}
+              className="flex-1 text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400"
+            />
+          </div>
+
+          <div className="flex items-start gap-2">
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0 pt-1.5">성격</span>
+            <div className="flex-1">
+              <textarea
+                value={draft.personality}
+                placeholder="성격을 입력해주세요"
+                maxLength={PERSONALITY_MAX}
+                rows={3}
+                onChange={(e) => setDraft((prev) => ({ ...prev, personality: e.target.value }))}
+                className="w-full text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400 resize-none leading-relaxed"
               />
+              <p className={`text-[10px] text-right -mt-0.5 ${draft.personality.length >= PERSONALITY_MAX ? 'text-red-400' : 'text-gray-400'}`}>
+                {draft.personality.length}/{PERSONALITY_MAX}
+              </p>
             </div>
-          ))}
+          </div>
+
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-700 font-medium w-10 shrink-0">나이</span>
             <div className="flex items-center gap-1">
@@ -680,7 +717,7 @@ export default function PetProfile({
                 inputMode="numeric"
                 pattern="[0-9]*"
                 value={draft.age}
-                placeholder="0"
+                placeholder=""
                 onChange={(e) => setDraft((prev) => ({ ...prev, age: e.target.value.replace(/[^0-9]/g, '').slice(0, 2) }))}
                 className="w-16 text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400"
               />
@@ -696,19 +733,21 @@ export default function PetProfile({
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">체중</span>
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">
+              체중 <span className="text-orange-500">*</span>
+            </span>
             <input
               type="text"
               inputMode="decimal"
-              value={draft.weight || ''}
-              placeholder="0.0"
+              value={editWeightStr}
+              placeholder="예: 3.5"
               onChange={(e) => {
-                const raw = e.target.value.replace(/[^0-9.]/g, '');
-                const clean = raw.split('.').length > 2 ? raw.slice(0, raw.lastIndexOf('.')) : raw;
-                const val = parseFloat(clean);
-                setDraft((prev) => ({ ...prev, weight: clean === '' ? 0 : (isNaN(val) ? prev.weight : Math.min(val, 99)) }));
+                const clean = e.target.value.replace(/[^0-9.]/g, '');
+                const parts = clean.split('.');
+                const norm = parts.length > 2 ? parts[0] + '.' + parts.slice(1).join('') : clean;
+                if (norm.length <= 5) setEditWeightStr(norm);
               }}
-              className="w-16 text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400"
+              className="w-20 text-xs text-gray-800 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-orange-400 placeholder:text-gray-400"
             />
             <span className="text-xs text-gray-500">kg</span>
           </div>
@@ -759,7 +798,7 @@ export default function PetProfile({
           </button>
           <button
             onClick={handleSave}
-            disabled={!draft.name.trim() || !draft.age || !draft.breed || !draft.personality.trim()}
+            disabled={!draft.name.trim() || !draft.age || !draft.breed || !draft.personality.trim() || !editWeightStr.trim() || parseFloat(editWeightStr) <= 0}
             className="flex-1 h-11 rounded-2xl text-white text-sm font-bold active:scale-[0.98] transition-transform disabled:opacity-40"
             style={{ background: 'linear-gradient(135deg, #FB923C, #F97316)' }}
           >
@@ -823,7 +862,7 @@ export default function PetProfile({
           <p className="text-sm font-bold text-orange-500">{totalPoints.toLocaleString()}P</p>
         </button>
         <button
-          onClick={() => { setDraft(pet); setEditing(true); }}
+          onClick={() => { setDraft(pet); setEditWeightStr(pet.weight ? String(pet.weight) : ''); setEditing(true); }}
           className="flex flex-col items-center py-2 rounded-xl hover:bg-gray-50 active:bg-orange-50 transition-colors"
         >
           <p className="text-xs text-gray-400 mb-1">프로필 편집</p>

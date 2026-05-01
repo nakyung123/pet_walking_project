@@ -28,6 +28,7 @@ app.use(cors({
     callback(new Error(`CORS: origin ${origin} 차단`));
   },
   credentials: true,
+  maxAge: 86400,
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { getPosts, createPost, Post, PostCategory } from '@/services/api';
+import { getPosts, createPost, Post, PostCategory, UserProfile } from '@/services/api';
 import PostDetailModal from '@/components/PostDetailModal';
 
 async function compressToBase64(file: File, maxWidth = 1024, quality = 0.8): Promise<string> {
@@ -28,6 +28,7 @@ interface Props {
   idToken: string;
   currentUserId: string;
   onClose: () => void;
+  onMessage?: (profile: UserProfile) => void;
 }
 
 const CATEGORY_TABS: { value: PostCategory | 'all'; label: string }[] = [
@@ -80,7 +81,7 @@ function PostCard({ post, onClick }: { post: Post; onClick: () => void }) {
   );
 }
 
-export default function CommunityPanel({ idToken, currentUserId, onClose }: Props) {
+export default function CommunityPanel({ idToken, currentUserId, onClose, onMessage }: Props) {
   const [view, setView] = useState<'list' | 'create' | 'detail'>('list');
   const [category, setCategory]   = useState<PostCategory | 'all'>('all');
   const [posts, setPosts]         = useState<Post[]>([]);
@@ -338,6 +339,7 @@ export default function CommunityPanel({ idToken, currentUserId, onClose }: Prop
             onPostUpdate={(pid, updates) => {
               setPosts((prev) => prev.map((p) => p.id === pid ? { ...p, ...updates } : p));
             }}
+            onMessage={onMessage}
           />
         )}
       </div>

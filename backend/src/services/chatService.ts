@@ -63,13 +63,7 @@ export async function getConversations(myId: string): Promise<ConversationSummar
        u.photo_url                                AS other_photo_url,
        m.text                                     AS last_message,
        m.created_at                               AS last_message_at,
-       COALESCE((
-         SELECT COUNT(*) FROM notifications n
-         WHERE n.user_id = $1
-           AND n.type = 'new_chat_message'
-           AND n.is_read = false
-           AND n.metadata->>'conversationId' = c.id
-       ), 0) AS unread_count,
+       COALESCE(unread.cnt, 0) AS unread_count,
        COALESCE(u.is_deleted, true) AS is_other_deleted
      FROM conversations c
      LEFT JOIN users u ON u.user_id = CASE WHEN c.user_id_1 = $1 THEN c.user_id_2 ELSE c.user_id_1 END
@@ -78,6 +72,14 @@ export async function getConversations(myId: string): Promise<ConversationSummar
        WHERE conversation_id = c.id
        ORDER BY created_at DESC LIMIT 1
      ) m ON true
+     LEFT JOIN (
+       SELECT metadata->>'conversationId' AS conv_id, COUNT(*)::INTEGER AS cnt
+       FROM notifications
+       WHERE user_id = $1
+         AND type = 'new_chat_message'
+         AND is_read = false
+       GROUP BY metadata->>'conversationId'
+     ) unread ON unread.conv_id = c.id
      WHERE (c.user_id_1 = $1 AND NOT c.deleted_for_user1)
         OR (c.user_id_2 = $1 AND NOT c.deleted_for_user2)
      ORDER BY COALESCE(m.created_at, c.created_at) DESC`,
@@ -98,7 +100,7 @@ export async function getConversations(myId: string): Promise<ConversationSummar
   }));
 }
 
-export async function getMessages(convId: string, limit = 100): Promise<ChatMessage[]> {
+export async function getMessages(convId: string, myId: string, limit = 100): Promise<ChatMessage[]> {
   const result = await pool.query<{
     id: string;
     conversation_id: string;
@@ -107,12 +109,18 @@ export async function getMessages(convId: string, limit = 100): Promise<ChatMess
     image_url: string | null;
     created_at: string;
   }>(
-    `SELECT id, conversation_id, sender_id, text, image_url, created_at
-     FROM messages
-     WHERE conversation_id = $1
-     ORDER BY created_at ASC
-     LIMIT $2`,
-    [convId, limit],
+    `SELECT m.id, m.conversation_id, m.sender_id, m.text, m.image_url, m.created_at
+     FROM messages m
+     JOIN conversations c ON c.id = m.conversation_id
+     WHERE m.conversation_id = $1
+       AND (
+         (c.user_id_1 = $2 AND (c.deleted_for_user1_at IS NULL OR m.created_at > c.deleted_for_user1_at))
+         OR
+         (c.user_id_2 = $2 AND (c.deleted_for_user2_at IS NULL OR m.created_at > c.deleted_for_user2_at))
+       )
+     ORDER BY m.created_at ASC
+     LIMIT $3`,
+    [convId, myId, limit],
   );
   return result.rows.map((r) => ({
     id: Number(r.id),
@@ -125,10 +133,15 @@ export async function getMessages(convId: string, limit = 100): Promise<ChatMess
 }
 
 export async function saveMessage(convId: string, senderId: string, text: string | null, imageUrl?: string | null): Promise<ChatMessage> {
-  // 새 메시지 전송 시 양측의 소프트 딜리트 플래그 리셋 (대화방 복원)
+  // 새 메시지 전송 시 발신자의 소프트 딜리트 플래그만 초기화 (상대방 삭제 기록은 유지)
   await pool.query(
-    `UPDATE conversations SET deleted_for_user1 = false, deleted_for_user2 = false WHERE id = $1`,
-    [convId],
+    `UPDATE conversations
+     SET deleted_for_user1    = CASE WHEN user_id_1 = $2 THEN false ELSE deleted_for_user1 END,
+         deleted_for_user1_at = CASE WHEN user_id_1 = $2 THEN NULL  ELSE deleted_for_user1_at END,
+         deleted_for_user2    = CASE WHEN user_id_2 = $2 THEN false ELSE deleted_for_user2 END,
+         deleted_for_user2_at = CASE WHEN user_id_2 = $2 THEN NULL  ELSE deleted_for_user2_at END
+     WHERE id = $1`,
+    [convId, senderId],
   );
   const result = await pool.query<{
     id: string;
@@ -157,11 +170,13 @@ export async function saveMessage(convId: string, senderId: string, text: string
 export async function deleteConversation(convId: string, myId: string): Promise<boolean> {
   const participants = await getConversationParticipants(convId);
   if (!participants || !participants.includes(myId)) return false;
-  // 소프트 딜리트: 요청한 유저에게만 숨김 처리 (상대방 대화는 유지)
+  // 소프트 딜리트: 요청한 유저에게만 숨김 처리, 삭제 시각 기록
   await pool.query(
     `UPDATE conversations
-     SET deleted_for_user1 = CASE WHEN user_id_1 = $2 THEN true ELSE deleted_for_user1 END,
-         deleted_for_user2 = CASE WHEN user_id_2 = $2 THEN true ELSE deleted_for_user2 END
+     SET deleted_for_user1    = CASE WHEN user_id_1 = $2 THEN true  ELSE deleted_for_user1 END,
+         deleted_for_user1_at = CASE WHEN user_id_1 = $2 THEN NOW() ELSE deleted_for_user1_at END,
+         deleted_for_user2    = CASE WHEN user_id_2 = $2 THEN true  ELSE deleted_for_user2 END,
+         deleted_for_user2_at = CASE WHEN user_id_2 = $2 THEN NOW() ELSE deleted_for_user2_at END
      WHERE id = $1`,
     [convId, myId],
   );

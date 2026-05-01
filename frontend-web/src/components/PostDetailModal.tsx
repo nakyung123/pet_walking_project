@@ -27,6 +27,7 @@ interface Props {
   onDeleted: () => void;
   inline?: boolean;
   onPostUpdate?: (postId: string, updates: { likeCount?: number; likedByMe?: boolean; commentCount?: number }) => void;
+  onMessage?: (profile: UserProfile) => void;
 }
 
 function timeAgo(iso: string): string {
@@ -322,7 +323,7 @@ function PostDetailContent({
   );
 }
 
-export default function PostDetailModal({ postId, idToken, currentUserId, onClose, onDeleted, inline, onPostUpdate }: Props) {
+export default function PostDetailModal({ postId, idToken, currentUserId, onClose, onDeleted, inline, onPostUpdate, onMessage }: Props) {
   const [post, setPost]         = useState<Post | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [input, setInput]       = useState('');
@@ -471,6 +472,7 @@ export default function PostDetailModal({ postId, idToken, currentUserId, onClos
         <UserProfilePopup
           profile={viewingProfile}
           onClose={() => setViewingProfile(null)}
+          onMessage={onMessage ? (p) => { setViewingProfile(null); onMessage(p); } : undefined}
         />
       )}
     </>
