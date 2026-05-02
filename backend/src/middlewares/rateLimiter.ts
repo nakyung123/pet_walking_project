@@ -30,10 +30,10 @@ export const commentLimiter = rateLimit({
   keyGenerator: (req) => (req as { uid?: string }).uid ?? 'unknown',
 });
 
-/** 일반 API 전역 제한: 1분에 최대 200회 */
+/** 일반 API 전역 제한: 1분에 최대 10000회 (부하테스트용 임시) */
 export const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 200,
+  max: 10000,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, data: null, error: '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.' },
