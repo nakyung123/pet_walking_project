@@ -1,5 +1,7 @@
 # 퍼피랜드 (Puppy Land)
 
+**배포 URL**: https://pet-walking-project-git-main-nakyung123s-projects.vercel.app
+
 GPS 격자 기반 반려견 영역 점유 산책 웹 서비스.
 반려견과 산책하며 실제 지도의 50m×50m 타일을 점유하고, 동네 반려인들과 실시간으로 경쟁하며 건강한 산책 습관을 형성할 수 있습니다.
 
