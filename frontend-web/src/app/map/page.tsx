@@ -28,6 +28,13 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 
 type Bounds = { minLat: number; maxLat: number; minLng: number; maxLng: number };
 type TileFilter = 'all' | 'mine' | 'rivals';
+const DAILY_MISSION_DONE_KEY = 'dailyMissionDoneDate';
+const DAILY_MISSION_SEEN_KEY = 'dailyMissionSeenDate';
+
+const getLocalDateKey = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
 
 const MISSIONS = [
   { emoji: '🦴', text: '오늘 3칸 마킹하면 간식 배지' },
@@ -122,8 +129,12 @@ export default function MapPage() {
 
   // 좌측 아이콘 상태
   const [missionState, setMissionState] = useState<'hidden' | 'popup' | 'banner'>('hidden');
-  const [hasSeenMission, setHasSeenMission] = useState(false);
-  const [missionDone, setMissionDone] = useState(false);
+  const [hasSeenMission, setHasSeenMission] = useState(() => {
+    try { return localStorage.getItem(DAILY_MISSION_SEEN_KEY) === getLocalDateKey(); } catch { return false; }
+  });
+  const [missionDone, setMissionDone] = useState(() => {
+    try { return localStorage.getItem(DAILY_MISSION_DONE_KEY) === getLocalDateKey(); } catch { return false; }
+  });
   const [showDogList, setShowDogList] = useState(false);
   const [flyTo, setFlyTo] = useState<{ lat: number; lng: number; zoom: number } | null>(null);
   const [activePetIdx, setActivePetIdx] = useState(0);
@@ -208,6 +219,23 @@ export default function MapPage() {
 
   const handlePositionOverride = useCallback((lat: number, lng: number) => {
     setOverridePosition({ lat, lng, speedKmh: 0 });
+  }, []);
+
+  useEffect(() => {
+    const syncDailyMission = () => {
+      const today = getLocalDateKey();
+      try {
+        setMissionDone(localStorage.getItem(DAILY_MISSION_DONE_KEY) === today);
+        setHasSeenMission(localStorage.getItem(DAILY_MISSION_SEEN_KEY) === today);
+      } catch {
+        setMissionDone(false);
+        setHasSeenMission(false);
+      }
+    };
+
+    syncDailyMission();
+    const id = window.setInterval(syncDailyMission, 60_000);
+    return () => window.clearInterval(id);
   }, []);
 
   // 위치 변경 시 경로 누적 (GPS + 드래그 모두 반영)
@@ -749,10 +777,21 @@ export default function MapPage() {
               ) : (
                 <button
                   onClick={() => {
+                    const today = getLocalDateKey();
                     setMissionDone(true);
+                    try { localStorage.setItem(DAILY_MISSION_DONE_KEY, today); } catch {}
                     try {
                       const records = JSON.parse(localStorage.getItem('pointHistory') || '[]');
-                      records.push({ timestamp: Date.now(), type: 'mission', points: 50, label: '일일 미션 완료' });
+                      const hasTodayMission = Array.isArray(records) && records.some((record) => {
+                        if (!record || record.type !== 'mission') return false;
+                        const ts = typeof record.timestamp === 'number' ? record.timestamp : 0;
+                        const d = new Date(ts);
+                        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                        return key === today;
+                      });
+                      if (!hasTodayMission) {
+                        records.push({ timestamp: Date.now(), type: 'mission', points: 50, label: '일일 미션 완료' });
+                      }
                       localStorage.setItem('pointHistory', JSON.stringify(records));
                     } catch {}
                     showToast('🎯 미션 완료! +50P 적립됐어요', 'success');
@@ -837,7 +876,11 @@ export default function MapPage() {
           <button
             onClick={() => {
               if (missionState !== 'hidden') { setMissionState('hidden'); return; }
-              if (!hasSeenMission) { setHasSeenMission(true); setMissionState('popup'); }
+              if (!hasSeenMission) {
+                setHasSeenMission(true);
+                try { localStorage.setItem(DAILY_MISSION_SEEN_KEY, getLocalDateKey()); } catch {}
+                setMissionState('popup');
+              }
               else { setMissionState('banner'); }
             }}
             className={`w-11 h-11 rounded-full flex items-center justify-center border transition-colors ${

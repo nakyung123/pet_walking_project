@@ -35,8 +35,25 @@ function formatDate(): string {
   return `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 ${days[now.getDay()]}요일`;
 }
 
-function calcCalories(weight: number, seconds: number): number {
-  return Math.round((0.8 / 0.453) * weight * (seconds / 3600));
+function normalizeWeight(weight: unknown): number {
+  const parsed = typeof weight === 'number'
+    ? weight
+    : typeof weight === 'string'
+    ? Number(weight.replace(/[^0-9.]/g, ''))
+    : NaN;
+  return Number.isFinite(parsed) && parsed > 0 && parsed <= 120 ? parsed : 5;
+}
+
+function calcCalories(weight: number, seconds: number, distanceKm: number): number {
+  const safeWeight = normalizeWeight(weight);
+  const safeSeconds = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+  const safeDistance = Number.isFinite(distanceKm) && distanceKm > 0 ? distanceKm : 0;
+  if (safeSeconds === 0 && safeDistance === 0) return 0;
+
+  const hours = safeSeconds / 3600;
+  const durationCalories = 3.5 * safeWeight * hours;
+  const distanceCalories = 1.1 * safeWeight * safeDistance;
+  return Math.max(1, Math.round(Math.max(durationCalories, distanceCalories)));
 }
 
 function initRouteOnMap(
@@ -226,7 +243,7 @@ export default function WalkSummaryModal({ summary, onClose, isPast, dateLabel }
           setPet({
             name: parsed.name || '우리 강아지',
             photoUrl: parsed.photoUrl,
-            weight: parsed.weight || 5,
+            weight: normalizeWeight(parsed.weight),
           });
           return;
         }
@@ -235,12 +252,12 @@ export default function WalkSummaryModal({ summary, onClose, isPast, dateLabel }
       const legacy = localStorage.getItem('petProfile');
       if (legacy) {
         const parsed = JSON.parse(legacy);
-        setPet({ name: parsed.name || '우리 강아지', photoUrl: parsed.photoUrl, weight: parsed.weight || 5 });
+        setPet({ name: parsed.name || '우리 강아지', photoUrl: parsed.photoUrl, weight: normalizeWeight(parsed.weight) });
       }
     } catch {}
   }, []);
 
-  const calories = calcCalories(pet.weight, summary.seconds);
+  const calories = calcCalories(pet.weight, summary.seconds, summary.distance);
 
   return (
     <>

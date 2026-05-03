@@ -78,6 +78,7 @@ export interface LeaderboardEntry {
   rank: number;
   userId: string;
   displayName: string;
+  photoUrl: string | null;
   tileCount: number;
   totalScore: number;
 }

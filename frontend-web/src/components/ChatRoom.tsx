@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { io, Socket } from 'socket.io-client';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import ReportModal from './ReportModal';
 import UserProfilePopup from './UserProfilePopup';
 import {
@@ -15,7 +14,6 @@ import {
   ChatMessage,
   UserProfile,
 } from '@/services/api';
-import { storage } from '@/lib/firebase';
 
 export interface ChatUser {
   userId: string;
@@ -49,12 +47,50 @@ interface ChatRoomProps {
 
 const SERVER = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
 const TRUNCATE_LEN = 100;
+const IMAGE_MAX_SIZE = 1280;
+const IMAGE_QUALITY = 0.78;
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
   const h = d.getHours();
   const m = String(d.getMinutes()).padStart(2, '0');
   return `${h >= 12 ? '오후' : '오전'} ${h % 12 || 12}:${m}`;
+}
+
+function compressImageToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) {
+      reject(new Error('이미지 파일만 전송할 수 있습니다.'));
+      return;
+    }
+
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const ratio = Math.min(1, IMAGE_MAX_SIZE / Math.max(img.width, img.height));
+      const width = Math.max(1, Math.round(img.width * ratio));
+      const height = Math.max(1, Math.round(img.height * ratio));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('이미지를 처리할 수 없습니다.'));
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', IMAGE_QUALITY));
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('이미지를 불러올 수 없습니다.'));
+    };
+
+    img.src = objectUrl;
+  });
 }
 
 export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, onClose }: ChatRoomProps) {
@@ -112,6 +148,16 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
     socket.on('new_message', ({ message }: { message: ChatMessage }) => {
       setMessages((prev) => {
         if (prev.find((m) => m.id === message.id)) return prev;
+        const optimisticIdx = prev.findIndex((m) =>
+          m.id < 0 &&
+          m.conversationId === message.conversationId &&
+          m.senderId === message.senderId &&
+          m.text === message.text &&
+          m.imageUrl === message.imageUrl
+        );
+        if (optimisticIdx !== -1) {
+          return prev.map((m, i) => (i === optimisticIdx ? message : m));
+        }
         return [...prev, message];
       });
     });
@@ -146,7 +192,11 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
     try {
       const res = await sendChatMessage(convId, text, idToken);
       if (res.success && res.data) {
-        setMessages((prev) => prev.map((m) => m.id === optimisticMsg.id ? res.data! : m));
+        setMessages((prev) => {
+          const withoutOptimistic = prev.filter((m) => m.id !== optimisticMsg.id);
+          if (withoutOptimistic.some((m) => m.id === res.data!.id)) return withoutOptimistic;
+          return [...withoutOptimistic, res.data!];
+        });
       }
     } catch (e) {
       console.error('[ChatRoom] 전송 실패', e);
@@ -176,10 +226,14 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
     setSending(true);
     setSendImageError(null);
     try {
-      const storageRef = ref(storage, `chat/${convId}/${Date.now()}_${file.name}`);
-      await uploadBytes(storageRef, file);
-      const imageUrl = await getDownloadURL(storageRef);
-      await sendChatMessage(convId, null, idToken, imageUrl);
+      const imageUrl = await compressImageToBase64(file);
+      const res = await sendChatMessage(convId, null, idToken, imageUrl);
+      if (res.success && res.data) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === res.data!.id)) return prev;
+          return [...prev, res.data!];
+        });
+      }
     } catch (e) {
       console.error('[ChatRoom] 이미지 전송 실패', e);
       setSendImageError('사진 전송에 실패했어요. 다시 시도해주세요.');

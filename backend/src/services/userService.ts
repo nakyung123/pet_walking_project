@@ -42,18 +42,26 @@ const LEADERBOARD_QUERY = `
   SELECT
     u.user_id,
     u.display_name,
+    u.photo_url,
     COUNT(t.tile_id)::INTEGER                                          AS tile_count,
     (COALESCE(SUM(t.occupancy_score), 0) + u.bonus_score)::INTEGER    AS total_score
   FROM users u
   LEFT JOIN tiles t ON t.occupant_user_id = u.user_id
   WHERE u.is_deleted = FALSE
-  GROUP BY u.user_id, u.display_name, u.bonus_score
+  GROUP BY u.user_id, u.display_name, u.photo_url, u.bonus_score
 `;
 
-const toEntry = (row: { user_id: string; display_name: string; tile_count: number; total_score: number }, i: number): LeaderboardEntry => ({
+const toEntry = (row: {
+  user_id: string;
+  display_name: string;
+  photo_url: string | null;
+  tile_count: number;
+  total_score: number;
+}, i: number): LeaderboardEntry => ({
   rank: i + 1,
   userId: row.user_id,
   displayName: row.display_name,
+  photoUrl: row.photo_url ?? null,
   tileCount: row.tile_count,
   totalScore: row.total_score,
 });
@@ -66,20 +74,21 @@ export const getNearbyLeaderboard = async (lat: number, lng: number, radiusKm: n
     SELECT
       u.user_id,
       u.display_name,
+      u.photo_url,
       COUNT(t.tile_id)::INTEGER                                         AS tile_count,
       (COALESCE(SUM(t.occupancy_score), 0) + u.bonus_score)::INTEGER   AS total_score
     FROM users u
     JOIN tiles t ON t.occupant_user_id = u.user_id
     WHERE t.center_lat BETWEEN $1 AND $2
       AND t.center_lng BETWEEN $3 AND $4
-    GROUP BY u.user_id, u.display_name, u.bonus_score
+    GROUP BY u.user_id, u.display_name, u.photo_url, u.bonus_score
   `;
   const [byTileRes, byScoreRes] = await Promise.all([
-    pool.query<{ user_id: string; display_name: string; tile_count: number; total_score: number }>(
+    pool.query<{ user_id: string; display_name: string; photo_url: string | null; tile_count: number; total_score: number }>(
       `${NEARBY_QUERY} ORDER BY tile_count DESC, total_score DESC LIMIT 10`,
       [lat - latDelta, lat + latDelta, lng - lngDelta, lng + lngDelta]
     ),
-    pool.query<{ user_id: string; display_name: string; tile_count: number; total_score: number }>(
+    pool.query<{ user_id: string; display_name: string; photo_url: string | null; tile_count: number; total_score: number }>(
       `${NEARBY_QUERY} ORDER BY total_score DESC, tile_count DESC LIMIT 10`,
       [lat - latDelta, lat + latDelta, lng - lngDelta, lng + lngDelta]
     ),
@@ -100,10 +109,10 @@ export const getLeaderboard = async (): Promise<LeaderboardData> => {
   }
 
   const [byTileRes, byScoreRes] = await Promise.all([
-    pool.query<{ user_id: string; display_name: string; tile_count: number; total_score: number }>(
+    pool.query<{ user_id: string; display_name: string; photo_url: string | null; tile_count: number; total_score: number }>(
       `${LEADERBOARD_QUERY} ORDER BY tile_count DESC, total_score DESC LIMIT 10`
     ),
-    pool.query<{ user_id: string; display_name: string; tile_count: number; total_score: number }>(
+    pool.query<{ user_id: string; display_name: string; photo_url: string | null; tile_count: number; total_score: number }>(
       `${LEADERBOARD_QUERY} ORDER BY total_score DESC, tile_count DESC LIMIT 10`
     ),
   ]);

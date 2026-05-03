@@ -539,7 +539,7 @@ export default function PetProfile({
 
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">이름</span>
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">이름 <span className="text-orange-500">*</span></span>
             <input
               value={addDraft.name}
               placeholder="이름을 입력해주세요"
@@ -550,7 +550,7 @@ export default function PetProfile({
           </div>
 
           <div className="flex items-start gap-2">
-            <span className="text-xs text-gray-700 font-medium w-10 shrink-0 pt-1.5">성격</span>
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0 pt-1.5">성격 <span className="text-orange-500">*</span></span>
             <div className="flex-1">
               <textarea
                 value={addDraft.personality}
@@ -567,7 +567,7 @@ export default function PetProfile({
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">나이</span>
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">나이 <span className="text-orange-500">*</span></span>
             <div className="flex items-center gap-1">
               <input
                 type="text"
@@ -582,7 +582,7 @@ export default function PetProfile({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">견종</span>
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">견종 <span className="text-orange-500">*</span></span>
             <BreedSelect
               value={addDraft.breed}
               onChange={(v) => setAddDraft((prev) => ({ ...prev, breed: v }))}
@@ -682,7 +682,7 @@ export default function PetProfile({
 
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">이름</span>
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">이름 <span className="text-orange-500">*</span></span>
             <input
               value={draft.name}
               placeholder="이름을 입력해주세요"
@@ -693,7 +693,7 @@ export default function PetProfile({
           </div>
 
           <div className="flex items-start gap-2">
-            <span className="text-xs text-gray-700 font-medium w-10 shrink-0 pt-1.5">성격</span>
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0 pt-1.5">성격 <span className="text-orange-500">*</span></span>
             <div className="flex-1">
               <textarea
                 value={draft.personality}
@@ -710,7 +710,7 @@ export default function PetProfile({
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">나이</span>
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">나이 <span className="text-orange-500">*</span></span>
             <div className="flex items-center gap-1">
               <input
                 type="text"
@@ -725,7 +725,7 @@ export default function PetProfile({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">견종</span>
+            <span className="text-xs text-gray-700 font-medium w-10 shrink-0">견종 <span className="text-orange-500">*</span></span>
             <BreedSelect
               value={draft.breed}
               onChange={(v) => setDraft((prev) => ({ ...prev, breed: v }))}

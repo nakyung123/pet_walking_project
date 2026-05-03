@@ -23,17 +23,17 @@ const sanitizeName = (name: string) =>
 type Tab = 'score' | 'tile';
 type Scope = 'nearby' | 'global';
 
-function Avatar({ userId, name, size = 44 }: { userId: string; name: string; size?: number }) {
+function Avatar({ photoUrl, name, size = 44 }: { photoUrl?: string | null; name: string; size?: number }) {
   return (
     <div
       style={{ width: size, height: size, minWidth: size }}
       className="rounded-full bg-orange-100 border-2 border-orange-200 overflow-hidden flex items-center justify-center"
     >
       <img
-        src={`https://place.dog/${size}/${size}?${userId.slice(0, 6)}`}
+        src={photoUrl || '/bichon.png'}
         alt={name}
         className="w-full h-full object-cover"
-        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+        onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/bichon.png'; }}
       />
     </div>
   );
@@ -63,7 +63,7 @@ function EntryRow({
       }`}>
         {rankLabel}
       </span>
-      <Avatar userId={entry.userId} name={sanitizeName(entry.displayName)} />
+      <Avatar photoUrl={entry.photoUrl} name={sanitizeName(entry.displayName)} />
       <div className="flex-1 min-w-0">
         <p className={`text-sm font-bold truncate ${isMe ? 'text-blue-600' : 'text-gray-900'}`}>
           {sanitizeName(entry.displayName)}{isMe && ' (나)'}
