@@ -102,6 +102,7 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
   const [sendImageError, setSendImageError] = useState<string | null>(null);
   const [showReport, setShowReport] = useState(false);
   const [fullTextMsg, setFullTextMsg] = useState<string | null>(null);
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
   // 이미지 미리보기
   const [pendingImage, setPendingImage] = useState<{ file: File; previewUrl: string } | null>(null);
   // 상대방 프로필 팝업
@@ -355,7 +356,7 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
                       src={msg.imageUrl}
                       alt="사진"
                       className="max-w-full rounded-2xl shadow-sm cursor-pointer"
-                      onClick={() => window.open(msg.imageUrl!, '_blank')}
+                      onClick={() => setSelectedImageUrl(msg.imageUrl)}
                     />
                   ) : (
                     <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed select-text ${
@@ -502,6 +503,28 @@ export default function ChatRoom({ currentUserId, idToken, otherUser, onBack, on
               <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap select-text">{fullTextMsg}</p>
             </div>
           </div>
+        </div>,
+        document.body,
+      )}
+
+      {selectedImageUrl && createPortal(
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-black/90"
+          onClick={() => setSelectedImageUrl(null)}
+        >
+          <button
+            className="absolute top-4 right-4 w-9 h-9 flex items-center justify-center rounded-full bg-white/20 text-white text-lg hover:bg-white/30 transition-colors"
+            onClick={() => setSelectedImageUrl(null)}
+            aria-label="Close image"
+          >
+            X
+          </button>
+          <img
+            src={selectedImageUrl}
+            alt="chat image"
+            className="max-w-full max-h-full object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>,
         document.body,
       )}
